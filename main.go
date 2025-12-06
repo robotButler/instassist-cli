@@ -2,16 +2,17 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/atotto/clipboard"
 	"github.com/charmbracelet/bubbles/textarea"
-	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 )
@@ -26,7 +27,7 @@ const (
 	titleText      = "instassist"
 
 	helpInput   = "tab: switch cli • enter: send • shift+enter/alt+enter: newline"
-	helpViewing = "enter: copy & exit • shift+enter/alt+enter: new prompt • j/k: scroll • ctrl-d/u: page • tab: switch cli • esc/q: quit"
+	helpViewing = "up/down/j/k: select • enter: copy & exit • shift+enter/alt+enter: new prompt • tab: switch cli • esc/q: quit"
 )
 
 type viewMode int
@@ -37,25 +38,27 @@ const (
 	modeViewing
 )
 
-type exchange struct {
-	cli      string
-	prompt   string
-	response string
-	err      error
-}
-
 type responseMsg struct {
 	output []byte
 	err    error
 	cli    string
 }
 
+type optionEntry struct {
+	Value               string `json:"value"`
+	Description         string `json:"description"`
+	RecommendationOrder int    `json:"recommendation_order"`
+}
+
+type optionResponse struct {
+	Options []optionEntry `json:"options"`
+}
+
 type model struct {
 	cliOptions []cliOption
 	cliIndex   int
 
-	input    textarea.Model
-	viewport viewport.Model
+	input textarea.Model
 
 	mode    viewMode
 	running bool
@@ -64,9 +67,14 @@ type model struct {
 	height int
 	ready  bool
 
-	history      []exchange
-	lastResponse string
-	status       string
+	lastPrompt string
+	status     string
+
+	rawOutput string
+
+	options        []optionEntry
+	selected       int
+	lastParseError error
 }
 
 func main() {
@@ -106,9 +114,6 @@ func newModel(defaultCLI string) model {
 	input.ShowLineNumbers = false
 	input.SetHeight(5)
 
-	viewport := viewport.New(0, 0)
-	viewport.Style = lipgloss.NewStyle().Border(lipgloss.NormalBorder()).Padding(0, 1)
-
 	cliIndex := 0
 	for i, opt := range cliOptions {
 		if strings.EqualFold(opt.name, defaultCLI) {
@@ -121,7 +126,6 @@ func newModel(defaultCLI string) model {
 		cliOptions: cliOptions,
 		cliIndex:   cliIndex,
 		input:      input,
-		viewport:   viewport,
 		mode:       modeInput,
 		status:     helpInput,
 	}
@@ -159,27 +163,30 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.running = false
 	m.mode = modeViewing
 
-	respText := strings.TrimRight(string(msg.output), "\n")
-	if msg.err != nil && strings.TrimSpace(respText) == "" {
+	respText := strings.TrimSpace(string(msg.output))
+	if msg.err != nil && respText == "" {
 		respText = msg.err.Error()
 	}
-	ex := exchange{
-		cli:      msg.cli,
-		prompt:   m.input.Value(),
-		response: respText,
-		err:      msg.err,
-	}
-	m.history = append(m.history, ex)
-	m.lastResponse = respText
+	m.rawOutput = respText
+	m.lastParseError = nil
 
 	if msg.err != nil {
 		m.status = fmt.Sprintf("error from %s • %s", msg.cli, helpViewing)
-	} else {
-		m.status = helpViewing
+		return m, nil
 	}
 
-	m.refreshViewportContent(true)
-	m.resizeComponents()
+	opts, parseErr := parseOptions(respText)
+	if parseErr != nil {
+		m.lastParseError = parseErr
+		m.status = fmt.Sprintf("parse error: %v • %s", parseErr, helpViewing)
+		m.options = nil
+		m.selected = 0
+		return m, nil
+	}
+
+	m.options = opts
+	m.selected = 0
+	m.status = helpViewing
 	return m, nil
 }
 
@@ -227,27 +234,28 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input.SetValue("")
 		m.input.Focus()
 		m.status = helpInput
-		m.refreshViewportContent(false)
-		m.resizeComponents()
+		m.options = nil
+		m.lastParseError = nil
+		m.rawOutput = ""
 		return m, nil
 	case msg.Type == tea.KeyEnter:
-		if m.lastResponse == "" {
-			m.status = "nothing to copy • " + helpViewing
-			return m, nil
+		value := m.selectedValue()
+		if value == "" {
+			if m.rawOutput == "" {
+				m.status = "nothing to copy • " + helpViewing
+				return m, nil
+			}
+			value = m.rawOutput
 		}
-		if err := clipboard.WriteAll(m.lastResponse); err != nil {
+		if err := clipboard.WriteAll(value); err != nil {
 			m.status = fmt.Sprintf("copy failed: %v • %s", err, helpViewing)
 			return m, nil
 		}
 		return m, tea.Quit
-	case msg.String() == "j":
-		m.viewport.LineDown(1)
-	case msg.String() == "k":
-		m.viewport.LineUp(1)
-	case msg.String() == "ctrl+d":
-		m.viewport.HalfPageDown()
-	case msg.String() == "ctrl+u":
-		m.viewport.HalfPageUp()
+	case msg.String() == "up" || msg.String() == "k":
+		m.moveSelection(-1)
+	case msg.String() == "down" || msg.String() == "j":
+		m.moveSelection(1)
 	}
 	return m, nil
 }
@@ -267,22 +275,28 @@ func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) submitPrompt() (tea.Model, tea.Cmd) {
-	prompt := strings.TrimRight(m.input.Value(), "\n")
-	if strings.TrimSpace(prompt) == "" {
+	userPrompt := strings.TrimRight(m.input.Value(), "\n")
+	if strings.TrimSpace(userPrompt) == "" {
 		m.status = "prompt is empty • " + helpInput
 		return m, nil
 	}
 
+	m.lastPrompt = userPrompt
+	fullPrompt := buildPrompt(userPrompt)
 	m.running = true
 	m.mode = modeRunning
 	m.status = fmt.Sprintf("running %s… • tab: switch cli", m.currentCLI().name)
+	m.options = nil
+	m.lastParseError = nil
+	m.rawOutput = ""
+	m.selected = 0
 
 	selectedCLI := m.currentCLI()
 	cliName := selectedCLI.name
 	cmd := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		out, err := selectedCLI.runPrompt(ctx, prompt)
+		out, err := selectedCLI.runPrompt(ctx, fullPrompt)
 		return responseMsg{
 			output: out,
 			err:    err,
@@ -315,47 +329,8 @@ func (m *model) resizeComponents() {
 		return
 	}
 
-	inputHeight := 0
-	if m.mode != modeViewing {
-		inputHeight = m.input.Height() + 1 // label line
-	}
-
-	helpLines := 1
-	headerLines := 2
-	spacing := 1
-	viewportHeight := m.height - inputHeight - helpLines - headerLines - spacing
-	if viewportHeight < 3 {
-		viewportHeight = 3
-	}
-
-	m.input.SetWidth(m.width - 2)
-	m.viewport.Width = m.width - 2
-	m.viewport.Height = viewportHeight
-
-	m.refreshViewportContent(false)
-}
-
-func (m *model) refreshViewportContent(scrollToBottom bool) {
-	var b strings.Builder
-	for i, ex := range m.history {
-		if i > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(fmt.Sprintf("[%s] prompt:\n", ex.cli))
-		b.WriteString(indent(ex.prompt, "  "))
-		b.WriteString("\n")
-		if ex.err != nil {
-			b.WriteString("error:\n")
-			b.WriteString(indent(strings.TrimSpace(ex.err.Error()), "  "))
-		} else {
-			b.WriteString("response:\n")
-			b.WriteString(indent(ex.response, "  "))
-		}
-	}
-
-	m.viewport.SetContent(b.String())
-	if scrollToBottom {
-		m.viewport.GotoBottom()
+	if m.width > 4 {
+		m.input.SetWidth(m.width - 2)
 	}
 }
 
@@ -370,15 +345,101 @@ func isShiftEnter(msg tea.KeyMsg) bool {
 	return s == "shift+enter" || s == "alt+enter"
 }
 
-func indent(s, prefix string) string {
-	if s == "" {
-		return prefix + "(empty)"
+func parseOptions(raw string) ([]optionEntry, error) {
+	tryParse := func(s string) ([]optionEntry, error) {
+		var resp optionResponse
+		if err := json.Unmarshal([]byte(s), &resp); err != nil {
+			return nil, err
+		}
+		if len(resp.Options) == 0 {
+			return nil, fmt.Errorf("no options returned")
+		}
+		opts := resp.Options
+		sort.SliceStable(opts, func(i, j int) bool {
+			oi := opts[i].RecommendationOrder
+			oj := opts[j].RecommendationOrder
+			if oi > 0 && oj > 0 && oi != oj {
+				return oi < oj
+			}
+			if oi > 0 && oj <= 0 {
+				return true
+			}
+			if oi <= 0 && oj > 0 {
+				return false
+			}
+			return i < j
+		})
+		return opts, nil
 	}
-	lines := strings.Split(s, "\n")
-	for i := range lines {
-		lines[i] = prefix + lines[i]
+
+	if opts, err := tryParse(raw); err == nil {
+		return opts, nil
 	}
-	return strings.Join(lines, "\n")
+	start := strings.Index(raw, "{")
+	end := strings.LastIndex(raw, "}")
+	if start >= 0 && end > start {
+		if opts, err := tryParse(raw[start : end+1]); err == nil {
+			return opts, nil
+		}
+	}
+	return nil, fmt.Errorf("failed to parse options from CLI output")
+}
+
+func (m *model) moveSelection(delta int) {
+	if len(m.options) == 0 {
+		return
+	}
+	m.selected = (m.selected + delta + len(m.options)) % len(m.options)
+}
+
+func (m model) selectedValue() string {
+	if len(m.options) == 0 {
+		return ""
+	}
+	if m.selected < 0 || m.selected >= len(m.options) {
+		return ""
+	}
+	return m.options[m.selected].Value
+}
+
+func (m model) renderOptionsTable() string {
+	if len(m.options) == 0 {
+		return "(no options)"
+	}
+
+	var rows []string
+	header := fmt.Sprintf("%-6s │ %-s", "Order", "Option")
+	rows = append(rows, header)
+
+	rowStyle := lipgloss.NewStyle()
+	selStyle := lipgloss.NewStyle().Reverse(true)
+
+	for i, opt := range m.options {
+		order := opt.RecommendationOrder
+		if order <= 0 {
+			order = i + 1
+		}
+		line := fmt.Sprintf("%-6d │ %s — %s", order, cleanText(opt.Value), cleanText(opt.Description))
+		if i == m.selected {
+			line = selStyle.Render(line)
+		} else {
+			line = rowStyle.Render(line)
+		}
+		rows = append(rows, line)
+	}
+
+	return strings.Join(rows, "\n")
+}
+
+func cleanText(s string) string {
+	s = strings.TrimSpace(s)
+	return strings.Join(strings.Fields(strings.ReplaceAll(s, "\n", " ")), " ")
+}
+
+func buildPrompt(userPrompt string) string {
+	base := "Give me one or more concise options with short descriptions for the following: "
+	schema := `Respond ONLY with JSON shaped like {"options":[{"value":"...","description":"...","recommendation_order":1}]}. No extra text.`
+	return base + userPrompt + "\n" + schema
 }
 
 func (m model) View() string {
@@ -398,13 +459,33 @@ func (m model) View() string {
 
 	b.WriteString(fmt.Sprintf("CLI: %s (tab to switch)\n", cli))
 
-	if len(m.history) > 0 {
+	if m.mode == modeViewing {
+		if strings.TrimSpace(m.lastPrompt) != "" {
+			b.WriteString("\n")
+			b.WriteString("Prompt:\n")
+			b.WriteString(m.lastPrompt)
+			b.WriteString("\n")
+		}
 		b.WriteString("\n")
-		b.WriteString(m.viewport.View())
-		b.WriteString("\n")
-	}
-
-	if m.mode != modeViewing {
+		if m.lastParseError != nil {
+			b.WriteString(fmt.Sprintf("Could not parse options: %v\n", m.lastParseError))
+			if m.rawOutput != "" {
+				b.WriteString("Raw output:\n")
+				b.WriteString(m.rawOutput)
+				b.WriteString("\n")
+			}
+		} else if len(m.options) == 0 {
+			b.WriteString("No options returned.\n")
+			if m.rawOutput != "" {
+				b.WriteString("Raw output:\n")
+				b.WriteString(m.rawOutput)
+				b.WriteString("\n")
+			}
+		} else {
+			b.WriteString(m.renderOptionsTable())
+			b.WriteString("\n")
+		}
+	} else {
 		b.WriteString("\n")
 		b.WriteString("Prompt:\n")
 		b.WriteString(m.input.View())
@@ -414,9 +495,6 @@ func (m model) View() string {
 	if m.status != "" {
 		b.WriteString("\n")
 		b.WriteString(m.status)
-		if m.mode == modeInput {
-			b.WriteString(" • esc/q: cancel after response")
-		}
 	}
 
 	return b.String()
