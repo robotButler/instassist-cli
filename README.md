@@ -18,9 +18,29 @@ A beautiful, fast TUI (Terminal User Interface) for getting instant AI-powered c
 
 ## Prerequisites
 
+### Required
+
 You need one of these AI CLIs installed:
 - [codex](https://github.com/anthropics/anthropic-tools) - Anthropic's codex CLI
 - [claude](https://github.com/anthropics/claude-cli) - Claude CLI
+
+### Clipboard Support
+
+For clipboard functionality, you need:
+- **Linux**: Install `xclip` or `xsel`
+  ```bash
+  # Arch Linux
+  sudo pacman -S xclip
+  # or
+  sudo pacman -S xsel
+
+  # Debian/Ubuntu
+  sudo apt install xclip
+  # or
+  sudo apt install xsel
+  ```
+- **macOS**: Works out of the box (uses built-in `pbcopy`)
+- **Windows**: Works out of the box
 
 ## Installation
 
@@ -79,6 +99,7 @@ instassist -cli claude
 
 #### Input Mode
 - `Enter` - Send prompt to AI
+- `Ctrl+R` - Send prompt and auto-execute first result
 - `Shift+Enter` or `Alt+Enter` - Insert newline
 - `Tab` - Switch between codex/claude
 - `Ctrl+C` - Quit
@@ -86,7 +107,7 @@ instassist -cli claude
 #### Viewing Mode (Results)
 - `Up/Down` or `j/k` - Navigate options
 - `Enter` - Copy selected option to clipboard and exit
-- `Ctrl+Enter` - **Run selected option and exit** (NEW!)
+- `Ctrl+R` - Execute selected option and exit
 - `Shift+Enter` or `Alt+Enter` - Start new prompt
 - `Tab` - Switch between codex/claude
 - `Esc` or `q` - Quit without action
@@ -249,13 +270,22 @@ The app looks for `options.schema.json` in these locations (in order):
 - Make sure `codex` or `claude` is installed and in your PATH
 - Test with `codex --version` or `claude --version`
 
+**Clipboard not working**
+- **Linux**: Make sure `xclip` or `xsel` is installed
+  ```bash
+  # Test if xclip is available
+  which xclip
+  # or
+  which xsel
+  ```
+- If clipboard fails, you can use CLI mode with `-output stdout` instead:
+  ```bash
+  instassist -prompt "your prompt" -output stdout
+  ```
+
 **Colors not showing**
 - Ensure your terminal supports 256 colors
 - Try `echo $TERM` - should be `xterm-256color` or similar
-
-**Ctrl+Enter not working**
-- Some terminals intercept this key combination
-- Try remapping your terminal's keyboard shortcuts
 
 ## Contributing
 

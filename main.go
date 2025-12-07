@@ -30,8 +30,8 @@ const (
 	defaultCLIName = "codex"
 	titleText      = "instassist"
 
-	helpInput   = "tab: switch cli • enter: send • shift+enter/alt+enter: newline"
-	helpViewing = "up/down/j/k: select • enter: copy & exit • ctrl+enter: run & exit • shift+enter: new prompt • tab: switch cli • esc/q: quit"
+	helpInput   = "tab: switch cli • enter: send • ctrl+r: send & auto-run • shift+enter/alt+enter: newline"
+	helpViewing = "up/down/j/k: select • enter: copy & exit • ctrl+r: run & exit • shift+enter: new prompt • tab: switch cli • esc/q: quit"
 )
 
 type viewMode int
@@ -79,6 +79,8 @@ type model struct {
 	options        []optionEntry
 	selected       int
 	lastParseError error
+
+	autoExecute bool // if true, execute first result and exit
 }
 
 func main() {
@@ -179,9 +181,9 @@ func runNonInteractive(cliName, userPrompt string, selectIndex int, outputMode s
 		}
 	case "clipboard":
 		if err := clipboard.WriteAll(selectedValue); err != nil {
-			log.Fatalf("clipboard error: %v", err)
+			log.Fatalf("clipboard error: %v\nHint: On Linux, install xclip or xsel (e.g., 'sudo pacman -S xclip')", err)
 		}
-		fmt.Printf("Copied to clipboard: %s\n", selectedValue)
+		fmt.Printf("✅ Copied to clipboard: %s\n", selectedValue)
 	default:
 		log.Fatalf("unknown output mode: %s", outputMode)
 	}
@@ -294,6 +296,17 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.options = opts
 	m.selected = 0
 	m.status = helpViewing
+
+	// Auto-execute if requested (Ctrl+R from input mode)
+	if m.autoExecute && len(opts) > 0 {
+		value := opts[0].Value
+		return m, tea.Sequence(
+			tea.ExecProcess(exec.Command("sh", "-c", value), func(err error) tea.Msg {
+				return tea.Quit()
+			}),
+		)
+	}
+
 	return m, nil
 }
 
@@ -321,7 +334,14 @@ func (m model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		return m, cmd
 	}
+	if isCtrlR(msg) {
+		// Submit and auto-execute first result
+		m.autoExecute = true
+		return m.submitPrompt()
+	}
 	if msg.Type == tea.KeyEnter {
+		// Regular submit - no auto-execute
+		m.autoExecute = false
 		return m.submitPrompt()
 	}
 
@@ -344,8 +364,9 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.options = nil
 		m.lastParseError = nil
 		m.rawOutput = ""
+		m.autoExecute = false
 		return m, nil
-	case isCtrlEnter(msg):
+	case isCtrlR(msg):
 		// Run command and exit
 		value := m.selectedValue()
 		if value == "" {
@@ -370,9 +391,11 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			value = m.rawOutput
 		}
 		if err := clipboard.WriteAll(value); err != nil {
-			m.status = fmt.Sprintf("copy failed: %v • %s", err, helpViewing)
+			m.status = fmt.Sprintf("❌ CLIPBOARD FAILED: %v • Install xclip/xsel on Linux • %s", err, helpViewing)
 			return m, nil
 		}
+		// Successfully copied - show confirmation before exiting
+		m.status = fmt.Sprintf("✅ Copied to clipboard: %s", value)
 		return m, tea.Quit
 	case msg.String() == "up" || msg.String() == "k":
 		m.moveSelection(-1)
@@ -467,9 +490,8 @@ func isShiftEnter(msg tea.KeyMsg) bool {
 	return s == "shift+enter" || s == "alt+enter"
 }
 
-func isCtrlEnter(msg tea.KeyMsg) bool {
-	s := msg.String()
-	return s == "ctrl+enter" || (msg.Type == tea.KeyEnter && msg.Type == tea.KeyCtrlM)
+func isCtrlR(msg tea.KeyMsg) bool {
+	return msg.Type == tea.KeyCtrlR || msg.String() == "ctrl+r"
 }
 
 func parseOptions(raw string) ([]optionEntry, error) {
