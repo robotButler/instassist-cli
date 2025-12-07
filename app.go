@@ -22,6 +22,7 @@ func Main() {
 	promptFlag := flag.String("prompt", "", "prompt to send (non-interactive mode)")
 	selectFlag := flag.Int("select", -1, "auto-select option by index (0-based, use with -prompt)")
 	outputFlag := flag.String("output", "clipboard", "output mode: clipboard, stdout, or exec")
+	stayOpenExecFlag := flag.Bool("stay-open-exec", false, "when executing (Ctrl+R), keep the TUI open and show output instead of exiting")
 	versionFlag := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -51,7 +52,7 @@ func Main() {
 	}
 
 	// Interactive TUI mode
-	m := newModel(*cliFlag)
+	m := newModel(*cliFlag, *stayOpenExecFlag)
 	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
 		log.Fatalf("error: %v", err)
 	}

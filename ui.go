@@ -37,8 +37,9 @@ type responseMsg struct {
 }
 
 type execResultMsg struct {
-	err  error
-	exit bool
+	err    error
+	exit   bool
+	output string
 }
 
 type tickMsg struct{}
@@ -59,8 +60,9 @@ type model struct {
 
 	input textarea.Model
 
-	mode    viewMode
-	running bool
+	mode         viewMode
+	running      bool
+	stayOpenExec bool
 
 	width  int
 	height int
@@ -69,7 +71,8 @@ type model struct {
 	lastPrompt string
 	status     string
 
-	rawOutput string
+	rawOutput  string
+	execOutput string
 
 	options        []optionEntry
 	selected       int
@@ -81,7 +84,7 @@ type model struct {
 	spinnerFrame int // for animation while waiting
 }
 
-func newModel(defaultCLI string) model {
+func newModel(defaultCLI string, stayOpenExec bool) model {
 	schemaPath, schemaJSON, err := schemaSources()
 	if err != nil {
 		logFatalSchema(err)
@@ -147,11 +150,12 @@ func newModel(defaultCLI string) model {
 	}
 
 	return model{
-		cliOptions: cliOptions,
-		cliIndex:   cliIndex,
-		input:      input,
-		mode:       modeInput,
-		status:     helpInput,
+		cliOptions:   cliOptions,
+		cliIndex:     cliIndex,
+		input:        input,
+		mode:         modeInput,
+		status:       helpInput,
+		stayOpenExec: stayOpenExec,
 	}
 }
 
@@ -183,11 +187,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.running = false
 			m.mode = modeViewing
 			m.status = fmt.Sprintf("❌ exec failed: %v • %s", msg.err, helpViewing)
+			m.lastError = msg.err
+			m.execOutput = msg.output
 			return m, nil
 		}
 		if msg.exit {
 			return m, tea.Quit
 		}
+		m.running = false
+		m.mode = modeViewing
+		m.execOutput = msg.output
+		m.status = "command finished • " + helpViewing
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
@@ -214,6 +224,7 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.rawOutput = respText
 	m.lastParseError = nil
 	m.lastError = nil
+	m.execOutput = ""
 
 	if msg.err != nil {
 		m.lastError = msg.err
@@ -240,7 +251,7 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 		value := opts[0].Value
 		m.status = fmt.Sprintf("running: %s", cleanText(value))
 		m.autoExecute = false
-		return m, execWithFeedback(value, true)
+		return m, execWithFeedback(value, !m.stayOpenExec, m.stayOpenExec)
 	}
 
 	return m, nil
@@ -314,6 +325,7 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lastParseError = nil
 		m.rawOutput = ""
 		m.autoExecute = false
+		m.execOutput = ""
 		return m, nil
 	case isCtrlR(msg):
 		value := m.selectedValue()
@@ -325,7 +337,8 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			value = m.rawOutput
 		}
 		m.status = fmt.Sprintf("running: %s", cleanText(value))
-		return m, execWithFeedback(value, true)
+		m.execOutput = ""
+		return m, execWithFeedback(value, !m.stayOpenExec, m.stayOpenExec)
 	case msg.Type == tea.KeyEnter:
 		value := m.selectedValue()
 		if value == "" {
@@ -410,6 +423,7 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.options = nil
 	m.lastParseError = nil
 	m.rawOutput = ""
+	m.execOutput = ""
 	m.selected = 0
 
 	selectedCLI := m.currentCLI()
@@ -669,6 +683,15 @@ func (m model) View() string {
 			b.WriteString(dividerStyle.Render(strings.Repeat("─", dividerWidth)))
 			b.WriteString("\n")
 		}
+
+		if strings.TrimSpace(m.execOutput) != "" {
+			outputLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
+			outputText := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+			b.WriteString(outputLabel.Render("Command output:"))
+			b.WriteString("\n")
+			b.WriteString(outputText.Render(m.execOutput))
+			b.WriteString("\n")
+		}
 	} else {
 		inputBoxStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
@@ -773,7 +796,15 @@ func (m model) View() string {
 	return b.String()
 }
 
-func execWithFeedback(value string, exitOnSuccess bool) tea.Cmd {
+func execWithFeedback(value string, exitOnSuccess bool, stayOpenExec bool) tea.Cmd {
+	if stayOpenExec {
+		return func() tea.Msg {
+			cmd := exec.Command("sh", "-c", value)
+			out, err := cmd.CombinedOutput()
+			return execResultMsg{err: err, exit: false, output: string(out)}
+		}
+	}
+
 	cmd := exec.Command("sh", "-c", value)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

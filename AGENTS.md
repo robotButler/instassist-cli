@@ -16,6 +16,7 @@
 ## Coding Style & Naming Conventions
 - Standard Go tooling: `gofmt`, `go vet` before pushing; keep imports grouped. Stick to Bubble Tea idioms (model/update/view) and keep UI state in `model` unless you break out packages.
 - Flags are kebab-case (`-cli`, `-prompt`, `-output`) with lowercase defaults; update help strings when adding flags.
+- New flag: `-stay-open-exec` keeps the TUI open after Ctrl+R and shows command stdout/stderr; default exits after exec.
 - Keep prompt format and schema in sync; changes to `buildPrompt` or `options.schema.json` should be documented in PRs.
 - Styling is Lipgloss-based; prefer shared styles if expanding the UI.
 

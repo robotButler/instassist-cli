@@ -149,6 +149,7 @@ inst -cli opencode -prompt "write a kubectl one-liner"
 | `-prompt` | - | Prompt for non-interactive mode |
 | `-select` | `-1` | Auto-select option by index (0-based, -1 = first) |
 | `-output` | `clipboard` | Output mode: `clipboard`, `stdout`, or `exec` |
+| `-stay-open-exec` | `false` | Keep TUI open after Ctrl+R, show command stdout/stderr |
 | `-version` | - | Print version and exit |
 
 ## Desktop Integration
