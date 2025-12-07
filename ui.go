@@ -98,8 +98,7 @@ func newModel(defaultCLI string) model {
 		{
 			name: "claude",
 			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--json-schema", schemaPath)
-				return cmd.CombinedOutput()
+				return runClaude(ctx, prompt, schemaPath)
 			},
 		},
 		{
