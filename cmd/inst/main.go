@@ -1,8 +1,6 @@
 package main
 
-import (
-	"instassist"
-)
+import "instassist"
 
 func main() {
 	instassist.Main()

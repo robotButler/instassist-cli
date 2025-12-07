@@ -53,14 +53,14 @@ make install
 ```
 This will:
 1. Build the binary
-2. Install it to `/usr/local/bin/insta`
+2. Install it to `/usr/local/bin/inst`
 3. Copy the schema file to `/usr/local/share/insta-assist/`
 
 ### Install with `go install`
 
 ```bash
-go install ./cmd/insta
-# Binary name: insta (in $(go env GOBIN) or $(go env GOPATH)/bin)
+go install ./cmd/inst
+# Binary name: inst (in $(go env GOBIN) or $(go env GOPATH)/bin)
 ```
 
 ### Manual Build
@@ -69,10 +69,10 @@ go install ./cmd/insta
 # Build only
 make build
 # or
-go build -o insta ./cmd/insta
+go build -o inst ./cmd/inst
 
 # Run from current directory
-./insta
+./inst
 ```
 
 ### Uninstall
@@ -88,13 +88,13 @@ make uninstall
 Launch the interactive interface:
 
 ```bash
-insta
+inst
 ```
 
 Or specify a default CLI:
 
 ```bash
-insta -cli claude
+inst -cli claude
 ```
 
 ### Keyboard Shortcuts
@@ -120,24 +120,24 @@ Perfect for scripting and automation:
 
 ```bash
 # Send prompt and copy first option to clipboard
-insta -prompt "list files in current directory"
+inst -prompt "list files in current directory"
 
 # Send prompt and output to stdout
-insta -prompt "list files" -output stdout
+inst -prompt "list files" -output stdout
 
 # Execute the first option directly
-insta -prompt "create a backup directory" -output exec
+inst -prompt "create a backup directory" -output exec
 
 # Select specific option (0-based index)
-insta -prompt "git commands" -select 0 -output stdout
+inst -prompt "git commands" -select 0 -output stdout
 
 # Read from stdin
-echo "show disk usage" | insta -output stdout
+echo "show disk usage" | inst -output stdout
 
 # Use with specific CLI
-insta -cli codex -prompt "docker commands"
-insta -cli gemini -prompt "use rsync"
-insta -cli opencode -prompt "write a kubectl one-liner"
+inst -cli codex -prompt "docker commands"
+inst -cli gemini -prompt "use rsync"
+inst -cli opencode -prompt "write a kubectl one-liner"
 ```
 
 ### CLI Flags
@@ -158,13 +158,13 @@ Create a keyboard shortcut that runs:
 
 ```bash
 # For terminal emulator popup
-gnome-terminal --geometry=100x30 -- insta
+gnome-terminal --geometry=100x30 -- inst
 
 # Or with kitty
-kitty --title "insta-assist" --override initial_window_width=1000 --override initial_window_height=600 insta
+kitty --title "insta-assist" --override initial_window_width=1000 --override initial_window_height=600 inst
 
 # Or with alacritty
-alacritty --title "insta-assist" -e insta
+alacritty --title "insta-assist" -e inst
 ```
 
 Bind to a key like `Super+Space` or `Ctrl+Alt+A`.
@@ -176,7 +176,7 @@ Create an automator Quick Action or use Hammerspoon:
 ```lua
 -- Hammerspoon config
 hs.hotkey.bind({"cmd", "ctrl"}, "space", function()
-    hs.execute("/usr/local/bin/alacritty -e insta")
+    hs.execute("/usr/local/bin/alacritty -e inst")
 end)
 ```
 
@@ -186,11 +186,11 @@ Add to your config:
 
 ```
 # i3 config
-bindsym $mod+space exec alacritty --class floating -e insta
+bindsym $mod+space exec alacritty --class floating -e inst
 for_window [class="floating"] floating enable
 
 # sway config
-bindsym $mod+space exec alacritty --class floating -e insta
+bindsym $mod+space exec alacritty --class floating -e inst
 for_window [app_id="floating"] floating enable
 ```
 
@@ -287,7 +287,7 @@ The app looks for `options.schema.json` in these locations (in order):
   ```
 - If clipboard fails, you can use CLI mode with `-output stdout` instead:
   ```bash
-  insta -prompt "your prompt" -output stdout
+  inst -prompt "your prompt" -output stdout
   ```
 
 **Colors not showing**

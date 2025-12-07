@@ -1,6 +1,6 @@
 .PHONY: build install uninstall clean test help
 
-BINARY_NAME=insta
+BINARY_NAME=inst
 INSTALL_PATH=/usr/local/bin
 SCHEMA_PATH=/usr/local/share/insta-assist
 VERSION=1.0.0
@@ -13,7 +13,7 @@ help: ## Show this help message
 
 build: ## Build the binary
 	@echo "Building $(BINARY_NAME) v$(VERSION)..."
-	go build -ldflags "-X instassist.version=$(VERSION)" -o $(BINARY_NAME) ./cmd/insta
+	go build -ldflags "-X instassist.version=$(VERSION)" -o $(BINARY_NAME) ./cmd/inst
 	@echo "Build complete: ./$(BINARY_NAME)"
 
 install: build ## Build and install to system
@@ -50,8 +50,8 @@ test: build ## Build and run a quick test
 run: build ## Build and run in interactive mode
 	./$(BINARY_NAME)
 
-go-install: ## Install with go install (places binary in GOBIN or GOPATH/bin as insta)
+go-install: ## Install with go install (places binary in GOBIN or GOPATH/bin as inst)
 	GO_BIN=$$(go env GOBIN); \
 	if [ -z "$$GO_BIN" ]; then GO_BIN="$$(go env GOPATH)/bin"; fi; \
-	go install ./cmd/insta; \
-	echo "Binary installed to $$GO_BIN/insta"
+	go install ./cmd/inst; \
+	echo "Binary installed to $$GO_BIN/inst"
