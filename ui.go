@@ -260,13 +260,20 @@ func (m model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC || msg.String() == "esc" {
 		return m, tea.Quit
 	}
-	if msg.String() == "ctrl+n" {
+	// ctrl-p = previous (left), ctrl-n = next (right)
+	if msg.Type == tea.KeyCtrlP {
+		m.prevCLI()
+		return m, nil
+	}
+	if msg.Type == tea.KeyCtrlN {
 		m.nextCLI()
 		return m, nil
 	}
-	if msg.String() == "ctrl+p" {
-		m.prevCLI()
-		return m, nil
+	// Handle tab key - insert tab character
+	if msg.Type == tea.KeyTab {
+		var cmd tea.Cmd
+		m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'\t'}})
+		return m, cmd
 	}
 	if isNewline(msg) {
 		currentLines := strings.Count(m.input.Value(), "\n") + 1
@@ -424,7 +431,7 @@ func (m *model) nextCLI() {
 		return
 	}
 	m.cliIndex = (m.cliIndex + 1) % len(m.cliOptions)
-	m.status = fmt.Sprintf("using %s • %s", m.currentCLI().name, helpInput)
+	m.status = helpInput
 }
 
 func (m *model) prevCLI() {
@@ -432,7 +439,7 @@ func (m *model) prevCLI() {
 		return
 	}
 	m.cliIndex = (m.cliIndex - 1 + len(m.cliOptions)) % len(m.cliOptions)
-	m.status = fmt.Sprintf("using %s • %s", m.currentCLI().name, helpInput)
+	m.status = helpInput
 }
 
 func (m model) currentCLI() cliOption {
@@ -502,26 +509,28 @@ func (m model) renderOptionsTable() string {
 	normalStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("15"))
 
-	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245")).
-		Italic(true)
+	commentStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("245"))
 
 	for i, opt := range m.options {
 		value := cleanText(opt.Value)
 		desc := cleanText(opt.Description)
 
+		var line string
 		if i == m.selected {
-			line := selectedStyle.Render("▶ " + value)
-			rows = append(rows, line)
 			if desc != "" {
-				rows = append(rows, descStyle.Render("  " + desc))
+				line = selectedStyle.Render("▶ "+value) + "  " + commentStyle.Render("# "+desc)
+			} else {
+				line = selectedStyle.Render("▶ " + value)
 			}
 		} else {
-			rows = append(rows, normalStyle.Render("  " + value))
 			if desc != "" {
-				rows = append(rows, descStyle.Render("  " + desc))
+				line = normalStyle.Render("  "+value) + "  " + commentStyle.Render("# "+desc)
+			} else {
+				line = normalStyle.Render("  " + value)
 			}
 		}
+		rows = append(rows, line)
 	}
 
 	return strings.Join(rows, "\n")
@@ -537,54 +546,62 @@ func (m model) View() string {
 
 	var b strings.Builder
 
-	// Tab styling (based on lipgloss example)
-	highlight := lipgloss.Color("205")
-	activeTabBorder := lipgloss.Border{
-		Top:         "─",
-		Bottom:      " ",
-		Left:        "│",
-		Right:       "│",
-		TopLeft:     "╭",
-		TopRight:    "╮",
-		BottomLeft:  "┘",
-		BottomRight: "└",
-	}
-	tabBorder := lipgloss.Border{
-		Top:         "─",
-		Bottom:      "─",
-		Left:        "│",
-		Right:       "│",
-		TopLeft:     "╭",
-		TopRight:    "╮",
-		BottomLeft:  "┴",
-		BottomRight: "┴",
-	}
+	// Title with emoji and CLI selector on one line
+	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
+	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
 
-	tab := lipgloss.NewStyle().
-		Border(tabBorder, true).
-		BorderForeground(highlight).
-		Padding(0, 1).
-		Foreground(lipgloss.Color("240"))
-
-	activeTab := lipgloss.NewStyle().
-		Border(activeTabBorder, true).
-		BorderForeground(highlight).
-		Padding(0, 1).
+	selectedCLIStyle := lipgloss.NewStyle().
+		Background(lipgloss.Color("205")).
+		Foreground(lipgloss.Color("0")).
 		Bold(true).
-		Foreground(highlight)
+		Padding(0, 1)
 
-	// Render tabs
-	var tabs []string
+	normalCLIStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("240")).
+		Padding(0, 1)
+
+	// Build left side (title and CLI options)
+	var leftSide strings.Builder
+	leftSide.WriteString(logoStyle.Render("✨ "))
+	leftSide.WriteString(titleStyle.Render(titleText))
+	leftSide.WriteString(separatorStyle.Render(" • "))
+
 	for i, opt := range m.cliOptions {
+		if i > 0 {
+			leftSide.WriteString(separatorStyle.Render(" | "))
+		}
 		if i == m.cliIndex {
-			tabs = append(tabs, activeTab.Render(opt.name))
+			leftSide.WriteString(selectedCLIStyle.Render(opt.name))
 		} else {
-			tabs = append(tabs, tab.Render(opt.name))
+			leftSide.WriteString(normalCLIStyle.Render(opt.name))
 		}
 	}
 
-	row := lipgloss.JoinHorizontal(lipgloss.Top, tabs...)
-	b.WriteString(row)
+	// Build right side (shortcut hint)
+	keyStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("205")).
+		Bold(true)
+	descStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("241"))
+
+	rightSide := keyStyle.Render("ctrl+n/p") + descStyle.Render(": next/prev CLI")
+
+	// Calculate spacing to align with prompt box right margin (same as input box)
+	leftWidth := lipgloss.Width(leftSide.String())
+	rightWidth := lipgloss.Width(rightSide)
+	// Align with prompt box which has width of m.width - 10
+	targetWidth := m.width - 10
+	spacing := ""
+	if targetWidth > leftWidth+rightWidth+2 {
+		spacing = strings.Repeat(" ", targetWidth-leftWidth-rightWidth)
+	} else {
+		spacing = "  "
+	}
+
+	b.WriteString(leftSide.String())
+	b.WriteString(spacing)
+	b.WriteString(rightSide)
 	b.WriteString("\n")
 
 	if m.running {
@@ -627,6 +644,14 @@ func (m model) View() string {
 			b.WriteString("\n")
 		} else {
 			b.WriteString(m.renderOptionsTable())
+			b.WriteString("\n")
+			// Add horizontal divider before status line
+			dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			dividerWidth := m.width - 10
+			if dividerWidth < 20 {
+				dividerWidth = 20
+			}
+			b.WriteString(dividerStyle.Render(strings.Repeat("─", dividerWidth)))
 			b.WriteString("\n")
 		}
 	} else {
@@ -675,10 +700,56 @@ func (m model) View() string {
 	}
 
 	if m.status != "" {
-		statusStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Italic(true)
-		b.WriteString(statusStyle.Render("💡 " + m.status))
+		// Style keyboard shortcuts differently from descriptions
+		keyStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
+		sepStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+		descStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("240"))
+
+		b.WriteString(descStyle.Render("💡 "))
+
+		// Build styled help text based on current status
+		if m.status == helpInput {
+			b.WriteString(keyStyle.Render("enter"))
+			b.WriteString(descStyle.Render(": send "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+r"))
+			b.WriteString(descStyle.Render(": send & run "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("alt+enter"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("ctrl+j"))
+			b.WriteString(descStyle.Render(": newline"))
+		} else if m.status == helpViewing {
+			b.WriteString(keyStyle.Render("up"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("down"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("j"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("k"))
+			b.WriteString(descStyle.Render(": select "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("enter"))
+			b.WriteString(descStyle.Render(": copy & exit "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+r"))
+			b.WriteString(descStyle.Render(": run & exit "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("alt+enter"))
+			b.WriteString(descStyle.Render(": new prompt "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("esc"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("q"))
+			b.WriteString(descStyle.Render(": quit"))
+		} else {
+			// For other status messages, just render as-is
+			b.WriteString(descStyle.Render(m.status))
+		}
 	}
 
 	return b.String()
