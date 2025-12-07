@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- Core TUI/CLI entrypoint lives in `main.go`; Go module is `instassist` (Go 1.25.5).
+- Core entrypoint lives in `main.go` (flag parsing) with supporting files: `ui.go` (Bubble Tea model), `noninteractive.go` (CLI flow), and `prompt.go` (schema lookup, parsing); Go module is `instassist` (Go 1.24.x).
 - `Makefile` contains build/install/test/run targets; `options.schema.json` defines the AI response schema consumed at runtime.
 - Build artifacts land in repo root as `insta`; docs and metadata live in `README.md`, `CHANGELOG.md`, `CLAUDE.md`, and `LICENSE`.
 - At runtime the schema is resolved in order: binary directory → current working directory → `/usr/local/share/insta-assist/options.schema.json`.

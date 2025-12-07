@@ -3,13 +3,13 @@
 A beautiful, fast TUI (Terminal User Interface) for getting instant AI-powered command suggestions. Designed for quick popup usage with keyboard shortcuts.
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue)
-![Go](https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go)
+![Go](https://img.shields.io/badge/Go-1.24+-00ADD8?logo=go)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
 - **Fast & Lightweight**: Minimal TUI optimized for quick interactions
-- **AI-Powered**: Get command suggestions from `codex` or `claude` CLIs
+- **AI-Powered**: Get command suggestions from `codex`, `claude`, `gemini`, or `opencode` CLIs
 - **Beautiful UI**: Color-coded interface with intuitive navigation
 - **Flexible Output**: Copy to clipboard, execute directly, or output to stdout
 - **Keyboard-Driven**: Fully keyboard navigable for maximum efficiency
@@ -48,17 +48,10 @@ For clipboard functionality, you need:
 
 ### Quick Install (Recommended)
 
-Using Make:
 ```bash
 make install
 ```
-
-Or using the install script:
-```bash
-bash install.sh
-```
-
-Both methods will:
+This will:
 1. Build the binary
 2. Install it to `/usr/local/bin/insta`
 3. Copy the schema file to `/usr/local/share/insta-assist/`
@@ -102,8 +95,8 @@ insta -cli claude
 #### Input Mode
 - `Enter` - Send prompt to AI
 - `Ctrl+R` - Send prompt and auto-execute first result
-- `Shift+Enter` or `Alt+Enter` or `Ctrl+J` - Insert newline
-- `Ctrl+N` / `Ctrl+P` - Switch to next/previous CLI
+- `Ctrl+N` / `Ctrl+P` - Switch CLI
+- `Alt+Enter` or `Ctrl+J` - Insert newline
 - `Ctrl+C` or `Esc` - Quit
 
 #### Viewing Mode (Results)
@@ -111,7 +104,7 @@ insta -cli claude
 - `Enter` - Copy selected option to clipboard and exit
 - `Ctrl+R` - Execute selected option and exit
 - `Alt+Enter` - Start new prompt
-- `Ctrl+N` / `Ctrl+P` - Switch to next/previous CLI
+- `Ctrl+N` / `Ctrl+P` - Switch CLI
 - `Ctrl+C`, `Esc`, or `q` - Quit without action
 
 ### CLI Mode (Non-Interactive)
@@ -136,13 +129,15 @@ echo "show disk usage" | insta -output stdout
 
 # Use with specific CLI
 insta -cli codex -prompt "docker commands"
+insta -cli gemini -prompt "use rsync"
+insta -cli opencode -prompt "write a kubectl one-liner"
 ```
 
 ### CLI Flags
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `-cli` | `codex` | Choose AI CLI: `codex` or `claude` |
+| `-cli` | `codex` | Choose AI CLI: `codex`, `claude`, `gemini`, or `opencode` |
 | `-prompt` | - | Prompt for non-interactive mode |
 | `-select` | `-1` | Auto-select option by index (0-based, -1 = first) |
 | `-output` | `clipboard` | Output mode: `clipboard`, `stdout`, or `exec` |
@@ -247,11 +242,14 @@ make clean
 
 ```
 insta-assist/
-├── main.go              # Main application code
-├── options.schema.json  # JSON schema for AI responses
+├── main.go             # Flags and entrypoint routing
+├── ui.go               # Bubble Tea model, rendering, key handling
+├── noninteractive.go   # CLI-only execution flow
+├── prompt.go           # Prompt building, schema resolution, JSON parsing
+├── options.schema.json # JSON schema for AI responses
 ├── Makefile            # Build and installation
 ├── README.md           # Documentation
-├── go.mod              # Go dependencies
+├── go.mod              # Go dependencies (Go 1.24.x)
 └── go.sum              # Dependency checksums
 ```
 
