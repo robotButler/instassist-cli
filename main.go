@@ -219,7 +219,7 @@ func newModel(defaultCLI string) model {
 	input.CharLimit = 0
 	input.Prompt = ""
 	input.ShowLineNumbers = false
-	input.SetHeight(5)
+	input.SetHeight(1) // Start with 1 line, will expand as needed
 
 	cliIndex := 0
 	for i, opt := range cliOptions {
@@ -324,12 +324,23 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Always allow exit
+	if msg.Type == tea.KeyCtrlC || msg.String() == "esc" {
+		return m, tea.Quit
+	}
 	if msg.String() == "tab" {
 		m.toggleCLI()
 		return m, nil
 	}
 	// Submit prompt on enter, add newline on shift+enter.
 	if isShiftEnter(msg) {
+		// Pre-emptively expand height BEFORE adding newline to prevent scrolling
+		currentLines := strings.Count(m.input.Value(), "\n") + 1
+		newLines := currentLines + 1 // We're about to add a newline
+		if newLines <= 10 {
+			m.input.SetHeight(newLines)
+		}
+
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(tea.KeyMsg{Type: tea.KeyEnter})
 		return m, cmd
@@ -350,7 +361,7 @@ func (m model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
-	case msg.String() == "esc" || msg.String() == "q":
+	case msg.Type == tea.KeyCtrlC || msg.String() == "esc" || msg.String() == "q":
 		return m, tea.Quit
 	case msg.String() == "tab":
 		m.toggleCLI()
@@ -406,6 +417,10 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m model) handleRunningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	// Always allow exit
+	if msg.Type == tea.KeyCtrlC || msg.String() == "esc" {
+		return m, tea.Quit
+	}
 	if msg.String() == "tab" {
 		m.toggleCLI()
 		return m, nil
@@ -413,9 +428,22 @@ func (m model) handleRunningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) adjustTextareaHeight() {
+	// Dynamically adjust height based on content (1-10 lines)
+	lines := strings.Count(m.input.Value(), "\n") + 1
+	if lines < 1 {
+		lines = 1
+	}
+	if lines > 10 {
+		lines = 10
+	}
+	m.input.SetHeight(lines)
+}
+
 func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
+	m.adjustTextareaHeight()
 	return m, cmd
 }
 
@@ -474,8 +502,9 @@ func (m *model) resizeComponents() {
 		return
 	}
 
-	if m.width > 4 {
-		m.input.SetWidth(m.width - 2)
+	if m.width > 10 {
+		// Account for: emoji (3) + border (2) + padding (2) + scroll indicator (2) + margin (1)
+		m.input.SetWidth(m.width - 10)
 	}
 }
 
@@ -647,38 +676,30 @@ func (m model) View() string {
 	var b strings.Builder
 	cli := m.currentCLI().name
 
-	// Title and status
+	// Compact title line: "instassist • CLI: codex (tab to switch)" or "instassist • ⚡ running codex…"
 	titleStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("205")).
 		Bold(true).
 		Underline(true)
-
-	b.WriteString(titleStyle.Render(titleText))
-
-	if m.running {
-		runningStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("10")).
-			Bold(true)
-		b.WriteString("  ")
-		b.WriteString(runningStyle.Render(fmt.Sprintf("⚡ running %s…", cli)))
-	}
-	b.WriteString("\n\n")
-
-	// CLI indicator
 	cliStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("14")).
 		Bold(true)
 	cliLabelStyle := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("241"))
-	b.WriteString(cliLabelStyle.Render("CLI: "))
-	b.WriteString(cliStyle.Render(cli))
-	b.WriteString(cliLabelStyle.Render(" (tab to switch)"))
-	b.WriteString("\n")
 
-	divider := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("238")).
-		Render(strings.Repeat("─", 60))
-	b.WriteString(divider)
+	b.WriteString(titleStyle.Render(titleText))
+	b.WriteString(" • ")
+
+	if m.running {
+		runningStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("10")).
+			Bold(true)
+		b.WriteString(runningStyle.Render(fmt.Sprintf("⚡ running %s…", cli)))
+	} else {
+		b.WriteString(cliLabelStyle.Render("CLI: "))
+		b.WriteString(cliStyle.Render(cli))
+		b.WriteString(cliLabelStyle.Render(" (tab to switch)"))
+	}
 	b.WriteString("\n")
 
 	if m.mode == modeViewing {
@@ -740,23 +761,58 @@ func (m model) View() string {
 			b.WriteString("\n")
 		}
 	} else {
+		// Input mode: emoji on same line as prompt box
 		promptLabelStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("12")).
 			Bold(true)
-		b.WriteString("\n")
-		b.WriteString(promptLabelStyle.Render("📝 Enter your prompt:"))
-		b.WriteString("\n")
 
 		inputBoxStyle := lipgloss.NewStyle().
 			Border(lipgloss.RoundedBorder()).
 			BorderForeground(lipgloss.Color("12")).
 			Padding(0, 1)
-		b.WriteString(inputBoxStyle.Render(m.input.View()))
+
+		// Calculate scroll indicator
+		totalLines := strings.Count(m.input.Value(), "\n") + 1
+		visibleHeight := m.input.Height()
+		hasScroll := totalLines > visibleHeight
+
+		// Build scroll indicator column
+		var scrollIndicator string
+		if hasScroll {
+			indicatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			scrollLines := make([]string, visibleHeight+2) // +2 for top and bottom borders
+			scrollLines[0] = "▲"
+			scrollLines[len(scrollLines)-1] = "▼"
+			for i := 1; i < len(scrollLines)-1; i++ {
+				scrollLines[i] = "│"
+			}
+			scrollIndicator = indicatorStyle.Render(strings.Join(scrollLines, "\n"))
+		}
+
+		// Render the prompt box
+		inputBox := inputBoxStyle.Render(m.input.View())
+
+		// Build emoji column (aligned to top)
+		inputLines := strings.Split(inputBox, "\n")
+		emojiColumn := make([]string, len(inputLines))
+		emojiColumn[0] = promptLabelStyle.Render("📝")
+		for i := 1; i < len(emojiColumn); i++ {
+			emojiColumn[i] = "  " // Two spaces to align
+		}
+		emoji := strings.Join(emojiColumn, "\n")
+
+		// Join horizontally: emoji + space + box + space + scroll indicator
+		if hasScroll {
+			combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox, " ", scrollIndicator)
+			b.WriteString(combined)
+		} else {
+			combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox)
+			b.WriteString(combined)
+		}
 		b.WriteString("\n")
 	}
 
 	if m.status != "" {
-		b.WriteString("\n")
 		statusStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("240")).
 			Italic(true)
