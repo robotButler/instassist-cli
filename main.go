@@ -887,74 +887,14 @@ func (m model) View() string {
 			b.WriteString("\n")
 		}
 	} else {
-		// Input mode with tab-style CLI selector connected to prompt box
-
-		// Create tab style for active CLI (top/left/right borders, no bottom)
-		tabStyle := lipgloss.NewStyle().
-			BorderStyle(lipgloss.Border{
-				Top:         "─",
-				Bottom:      " ",
-				Left:        "│",
-				Right:       "│",
-				TopLeft:     "╭",
-				TopRight:    "╮",
-				BottomLeft:  "└",
-				BottomRight: "┘",
-			}).
-			BorderTop(true).
-			BorderLeft(true).
-			BorderRight(true).
-			BorderBottom(false).
-			BorderForeground(lipgloss.Color("51")).  // Bright cyan
-			Padding(0, 1).
-			Bold(true).
-			Foreground(lipgloss.Color("205"))  // Active CLI in fuscia
-
-		inactiveCLIStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240")).
-			Italic(true)
-
-		// Build tab row with active CLI as tab and others inline
-		var tabRow strings.Builder
-		tabRow.WriteString("  ")  // Initial indent
-
-		for i, opt := range m.cliOptions {
-			if i == m.cliIndex {
-				// Active CLI as tab
-				tabRow.WriteString(tabStyle.Render(" " + opt.name + " "))
-			} else {
-				// Inactive CLIs as plain text
-				if i > 0 {
-					tabRow.WriteString("  ")
-				}
-				tabRow.WriteString(inactiveCLIStyle.Render(opt.name))
-			}
-		}
-
-		// Show keyboard shortcuts if multiple CLIs
-		if len(m.cliOptions) > 1 {
-			shortcutHintStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("241")).
-				Italic(true)
-			tabRow.WriteString(shortcutHintStyle.Render("  (ctrl+p/n)"))
-		}
-
-		b.WriteString(tabRow.String())
-		b.WriteString("\n")
-
-		// Create prompt box with top border that connects to tab
+		// Input mode with neon neo-tokyo gradient colors
+		// Create neon gradient effect with multiple border colors
 		inputBoxStyle := lipgloss.NewStyle().
-			Border(lipgloss.Border{
-				Top:         "─",
-				Bottom:      "─",
-				Left:        "│",
-				Right:       "│",
-				TopLeft:     "├",
-				TopRight:    "─",
-				BottomLeft:  "╰",
-				BottomRight: "╯",
+			Border(lipgloss.RoundedBorder()).
+			BorderForeground(lipgloss.AdaptiveColor{
+				Light: "201",  // Bright magenta
+				Dark:  "51",   // Bright cyan
 			}).
-			BorderForeground(lipgloss.Color("51")).  // Bright cyan
 			Padding(0, 1)
 
 		// Calculate scroll indicator
