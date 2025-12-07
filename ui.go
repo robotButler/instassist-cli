@@ -74,6 +74,7 @@ type model struct {
 	options        []optionEntry
 	selected       int
 	lastParseError error
+	lastError      error
 
 	autoExecute bool // if true, execute first result and exit
 
@@ -212,9 +213,11 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	}
 	m.rawOutput = respText
 	m.lastParseError = nil
+	m.lastError = nil
 
 	if msg.err != nil {
-		m.status = fmt.Sprintf("error from %s • %s", msg.cli, helpViewing)
+		m.lastError = msg.err
+		m.status = fmt.Sprintf("error from %s: %v • %s", msg.cli, msg.err, helpViewing)
 		m.options = nil
 		m.selected = 0
 		return m, nil
@@ -624,7 +627,19 @@ func (m model) View() string {
 			b.WriteString("\n")
 		}
 
-		if m.lastParseError != nil {
+		if m.lastError != nil {
+			errorStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("9")).
+				Bold(true)
+			b.WriteString(errorStyle.Render(fmt.Sprintf("❌ Error: %v", m.lastError)))
+			b.WriteString("\n")
+			if m.rawOutput != "" {
+				rawStyle := lipgloss.NewStyle().
+					Foreground(lipgloss.Color("245"))
+				b.WriteString(rawStyle.Render(m.rawOutput))
+				b.WriteString("\n")
+			}
+		} else if m.lastParseError != nil {
 			errorStyle := lipgloss.NewStyle().
 				Foreground(lipgloss.Color("9")).
 				Bold(true)
