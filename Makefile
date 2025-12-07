@@ -49,3 +49,9 @@ test: build ## Build and run a quick test
 
 run: build ## Build and run in interactive mode
 	./$(BINARY_NAME)
+
+go-install: ## Install with go install (places binary in GOBIN or GOPATH/bin as instassist)
+	GO_BIN=$$(go env GOBIN); \
+	if [ -z "$$GO_BIN" ]; then GO_BIN="$$(go env GOPATH)/bin"; fi; \
+	go install ./...; \
+	echo "Binary installed to $$GO_BIN/instassist (symlink to insta if desired: ln -sf $$GO_BIN/instassist $$GO_BIN/insta)"

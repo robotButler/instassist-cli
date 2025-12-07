@@ -10,6 +10,7 @@
 - `make run` — build then launch the TUI from the repo (uses alt screen).
 - `make test` — build and run smoke checks for `-version` and `-h`; use `go test ./...` for unit coverage (prompt parsing, schema lookup, exec flows).
 - `make install` — build, copy binary to `/usr/local/bin`, and install schema to `/usr/local/share/insta-assist` (uses `sudo`); `make uninstall` reverses it.
+- `make go-install` — install via `go install ./...` into `GOBIN`/`GOPATH/bin` (binary name: `instassist`; symlink to `insta` if desired).
 - Manual build: `go build -o insta .` if you need a quick local binary.
 
 ## Coding Style & Naming Conventions

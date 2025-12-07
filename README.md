@@ -56,6 +56,14 @@ This will:
 2. Install it to `/usr/local/bin/insta`
 3. Copy the schema file to `/usr/local/share/insta-assist/`
 
+### Install with `go install`
+
+```bash
+go install ./...
+# Binary name: instassist (in $(go env GOBIN) or $(go env GOPATH)/bin)
+# Optional: ln -sf $(go env GOPATH)/bin/instassist /usr/local/bin/insta
+```
+
 ### Manual Build
 
 ```bash
