@@ -19,6 +19,8 @@ import (
 const (
 	titleText = "insta-assist"
 
+	grayColor = "250"
+
 	helpInput   = "enter: send • ctrl+r: send & run • ctrl+y: toggle yolo • alt+enter/ctrl+j: newline • esc: exit"
 	helpViewing = "enter: copy & exit • ctrl+r: run & exit • a: refine • n: new prompt • ctrl+y: toggle yolo • esc/q: quit"
 	helpRefine  = "enter: refine • ctrl+r: refine & run • ctrl+y: toggle yolo • alt+enter/ctrl+j: newline • esc: exit"
@@ -729,7 +731,7 @@ func (m model) selectedValue() string {
 func (m model) renderOptionsTable() string {
 	if len(m.options) == 0 {
 		noOptsStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("241")).
+			Foreground(lipgloss.Color(grayColor)).
 			Italic(true)
 		return noOptsStyle.Render("(no options)")
 	}
@@ -745,7 +747,7 @@ func (m model) renderOptionsTable() string {
 		Foreground(lipgloss.Color("15"))
 
 	commentStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("245"))
+		Foreground(lipgloss.Color(grayColor))
 
 	for i, opt := range m.options {
 		value := cleanText(opt.Value)
@@ -845,9 +847,9 @@ func (m model) buildHeader() (string, headerMeta) {
 
 	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
-	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(grayColor))
 	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
-	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(grayColor))
 
 	selectedCLIStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("205")).
@@ -856,7 +858,7 @@ func (m model) buildHeader() (string, headerMeta) {
 		Padding(0, 1)
 
 	normalCLIStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("240")).
+		Foreground(lipgloss.Color(grayColor)).
 		Padding(0, 1)
 
 	toggleStyle := lipgloss.NewStyle().
@@ -923,7 +925,7 @@ func (m model) buildHeader() (string, headerMeta) {
 	if m.yolo {
 		toggleStyle = toggleStyle.Background(lipgloss.Color("205")).Foreground(lipgloss.Color("0"))
 	} else {
-		toggleStyle = toggleStyle.Foreground(lipgloss.Color("250"))
+		toggleStyle = toggleStyle.Foreground(lipgloss.Color(grayColor))
 	}
 
 	toggleText := toggleStyle.Render("yolo: " + yoloState)
@@ -1001,7 +1003,7 @@ func (m model) View() string {
 			b.WriteString("\n")
 			if m.rawOutput != "" {
 				rawStyle := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("245"))
+					Foreground(lipgloss.Color(grayColor))
 				b.WriteString(rawStyle.Render(m.rawOutput))
 				b.WriteString("\n")
 			}
@@ -1013,7 +1015,7 @@ func (m model) View() string {
 			b.WriteString("\n")
 			if m.rawOutput != "" {
 				rawStyle := lipgloss.NewStyle().
-					Foreground(lipgloss.Color("245"))
+					Foreground(lipgloss.Color(grayColor))
 				b.WriteString(rawStyle.Render(m.rawOutput))
 				b.WriteString("\n")
 			}
@@ -1027,7 +1029,7 @@ func (m model) View() string {
 			b.WriteString(m.renderOptionsTable())
 			b.WriteString("\n")
 			// Add horizontal divider before status line
-			dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+			dividerStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(grayColor))
 			dividerWidth := m.width - 10
 			if dividerWidth < 20 {
 				dividerWidth = 20
@@ -1038,7 +1040,7 @@ func (m model) View() string {
 
 		if strings.TrimSpace(m.execOutput) != "" {
 			outputLabel := lipgloss.NewStyle().Foreground(lipgloss.Color("14")).Bold(true)
-			outputText := lipgloss.NewStyle().Foreground(lipgloss.Color("250"))
+			outputText := lipgloss.NewStyle().Foreground(lipgloss.Color(grayColor))
 			b.WriteString(outputLabel.Render("Command output:"))
 			b.WriteString("\n")
 			b.WriteString(outputText.Render(m.execOutput))
@@ -1058,9 +1060,9 @@ func (m model) View() string {
 			Foreground(lipgloss.Color("205")).
 			Bold(true)
 		sepStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(lipgloss.Color(grayColor))
 		descStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("240"))
+			Foreground(lipgloss.Color(grayColor))
 
 		b.WriteString(descStyle.Render("💡 "))
 
