@@ -871,9 +871,10 @@ func (m model) buildHeader() (string, headerMeta) {
 		Padding(0, 1)
 
 	toggleStyle := lipgloss.NewStyle().
-		Border(lipgloss.RoundedBorder()).
-		BorderForeground(lipgloss.Color("205")).
-		Padding(0, 1)
+		Foreground(lipgloss.Color("0")).
+		Background(lipgloss.Color("205")).
+		Padding(0, 1).
+		Bold(true)
 
 	targetWidth := m.width - 10
 	if targetWidth < 20 {
