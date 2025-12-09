@@ -871,8 +871,6 @@ func (m model) buildHeader() (string, headerMeta) {
 		Padding(0, 1)
 
 	toggleStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("0")).
-		Background(lipgloss.Color("205")).
 		Padding(0, 1).
 		Bold(true)
 
@@ -931,6 +929,12 @@ func (m model) buildHeader() (string, headerMeta) {
 	yoloState := "off"
 	if m.yolo {
 		yoloState = "on"
+	}
+
+	if m.yolo {
+		toggleStyle = toggleStyle.Background(lipgloss.Color("205")).Foreground(lipgloss.Color("0"))
+	} else {
+		toggleStyle = toggleStyle.Foreground(lipgloss.Color("241"))
 	}
 
 	toggleText := toggleStyle.Render("yolo: " + yoloState)
