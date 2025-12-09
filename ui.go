@@ -19,9 +19,9 @@ import (
 const (
 	titleText = "insta-assist"
 
-	helpInput   = "enter: send • ctrl+r: send & run • alt+enter/ctrl+j: newline • esc: exit"
-	helpRefine  = "enter: refine • ctrl+r: refine & run • alt+enter/ctrl+j: newline • esc: exit"
-	helpViewing = "up/down/j/k: select • enter: copy & exit • ctrl+r: run & exit • a: refine • n: new prompt • esc/q: quit"
+	helpInput   = "enter: send • ctrl+r: send & run • ctrl+y: toggle yolo • alt+enter/ctrl+j: newline • esc: exit"
+	helpViewing = "enter: copy & exit • ctrl+r: run & exit • a: refine • n: new prompt • ctrl+y: toggle yolo • esc/q: quit"
+	helpRefine  = "enter: refine • ctrl+r: refine & run • ctrl+y: toggle yolo • alt+enter/ctrl+j: newline • esc: exit"
 )
 
 type viewMode int
@@ -52,10 +52,24 @@ func tickCmd() tea.Msg {
 	return tickMsg{}
 }
 
+type clickRegion struct {
+	kind   string
+	index  int
+	startX int
+	endX   int
+	y      int
+}
+
+type headerMeta struct {
+	cliRegions  []clickRegion
+	yoloRegion  clickRegion
+	headerWidth int
+}
+
 type cliOption struct {
 	name         string
-	runPrompt    func(ctx context.Context, prompt string) ([]byte, error)
-	resumePrompt func(ctx context.Context, prompt string, sessionID string) ([]byte, error)
+	runPrompt    func(ctx context.Context, prompt string, yolo bool) ([]byte, error)
+	resumePrompt func(ctx context.Context, prompt string, sessionID string, yolo bool) ([]byte, error)
 }
 
 type model struct {
@@ -67,6 +81,7 @@ type model struct {
 	mode         viewMode
 	running      bool
 	stayOpenExec bool
+	yolo         bool
 
 	width  int
 	height int
@@ -101,46 +116,73 @@ func newModel(defaultCLI string, stayOpenExec bool) model {
 	allCLIOptions := []cliOption{
 		{
 			name: "codex",
-			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json")
+			runPrompt: func(ctx context.Context, prompt string, yolo bool) ([]byte, error) {
+				args := []string{"exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json"}
+				if yolo {
+					args = append(args, "--yolo")
+				}
+				cmd := exec.CommandContext(ctx, "codex", args...)
 				cmd.Stdin = strings.NewReader(prompt)
 				return cmd.CombinedOutput()
 			},
-			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "codex", "exec", "resume", "--output-schema", schemaPath, "--skip-git-repo-check", "--json", sessionID, "-")
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string, yolo bool) ([]byte, error) {
+				args := []string{"exec", "resume"}
+				if yolo {
+					args = append(args, "--yolo")
+				}
+				args = append(args, "--output-schema", schemaPath, "--skip-git-repo-check", "--json", sessionID, "-")
+				cmd := exec.CommandContext(ctx, "codex", args...)
 				cmd.Stdin = strings.NewReader(prompt)
 				return cmd.CombinedOutput()
 			},
 		},
 		{
 			name: "claude",
-			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON)
+			runPrompt: func(ctx context.Context, prompt string, yolo bool) ([]byte, error) {
+				args := []string{"-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON}
+				if yolo {
+					args = append(args, "--dangerously-skip-permissions")
+				}
+				cmd := exec.CommandContext(ctx, "claude", args...)
 				return cmd.CombinedOutput()
 			},
-			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON, "--resume", sessionID)
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string, yolo bool) ([]byte, error) {
+				args := []string{"-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON, "--resume", sessionID}
+				if yolo {
+					args = append(args, "--dangerously-skip-permissions")
+				}
+				cmd := exec.CommandContext(ctx, "claude", args...)
 				return cmd.CombinedOutput()
 			},
 		},
 		{
 			name: "gemini",
-			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", prompt)
+			runPrompt: func(ctx context.Context, prompt string, yolo bool) ([]byte, error) {
+				args := []string{"--output-format", "json"}
+				if yolo {
+					args = append(args, "--yolo")
+				}
+				args = append(args, prompt)
+				cmd := exec.CommandContext(ctx, "gemini", args...)
 				return cmd.CombinedOutput()
 			},
-			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", "--resume", sessionID, prompt)
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string, yolo bool) ([]byte, error) {
+				args := []string{"--output-format", "json", "--resume", sessionID}
+				if yolo {
+					args = append(args, "--yolo")
+				}
+				args = append(args, prompt)
+				cmd := exec.CommandContext(ctx, "gemini", args...)
 				return cmd.CombinedOutput()
 			},
 		},
 		{
 			name: "opencode",
-			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
+			runPrompt: func(ctx context.Context, prompt string, yolo bool) ([]byte, error) {
 				cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", prompt)
 				return cmd.CombinedOutput()
 			},
-			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string, yolo bool) ([]byte, error) {
 				cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", "--session", sessionID, prompt)
 				return cmd.CombinedOutput()
 			},
@@ -225,9 +267,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case tea.KeyMsg:
 		return m.handleKeyMsg(msg)
+	case tea.MouseMsg:
+		return m.handleMouseMsg(msg)
 	}
 
-	if m.mode == modeInput || m.mode == modeRefine {
+	if m.mode == modeInput {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.adjustTextareaHeight()
@@ -240,7 +284,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.running = false
 	m.mode = modeViewing
-	m.pendingResumeID = ""
 
 	respText := strings.TrimSpace(string(msg.output))
 	if msg.err != nil && respText == "" {
@@ -304,9 +347,49 @@ func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
+func (m model) handleMouseMsg(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	if msg.Button != tea.MouseButtonLeft || msg.Action != tea.MouseActionPress {
+		return m, nil
+	}
+
+	if msg.Y == 0 {
+		layout := m.headerLayout()
+		currentHelp := helpInput
+		if m.mode == modeViewing {
+			currentHelp = helpViewing
+		} else if m.mode == modeRefine {
+			currentHelp = helpRefine
+		}
+		for _, reg := range layout.cliRegions {
+			if msg.X >= reg.startX && msg.X < reg.endX {
+				m.cliIndex = reg.index
+				m.status = currentHelp
+				return m, nil
+			}
+		}
+		if msg.X >= layout.yoloRegion.startX && msg.X < layout.yoloRegion.endX {
+			m.toggleYolo()
+			return m, nil
+		}
+	}
+
+	if m.mode == modeViewing || m.mode == modeRefine {
+		if idx := m.optionIndexAt(msg.Y); idx >= 0 {
+			m.selected = idx
+			return m, nil
+		}
+	}
+
+	return m, nil
+}
+
 func (m model) handleInputKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if msg.Type == tea.KeyCtrlC || msg.String() == "esc" {
 		return m, tea.Quit
+	}
+	if msg.Type == tea.KeyCtrlY || msg.String() == "ctrl+y" {
+		m.toggleYolo()
+		return m, nil
 	}
 	// ctrl-p = previous (left), ctrl-n = next (right)
 	if msg.Type == tea.KeyCtrlP {
@@ -349,6 +432,25 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyCtrlC || msg.String() == "esc" || msg.String() == "q":
 		return m, tea.Quit
+	case msg.Type == tea.KeyCtrlY || msg.String() == "ctrl+y":
+		m.toggleYolo()
+		return m, nil
+	case msg.String() == "a":
+		sessionID := m.sessionIDs[m.currentCLI().name]
+		if sessionID == "" {
+			m.status = "no session to refine yet • " + helpViewing
+			return m, nil
+		}
+		m.mode = modeRefine
+		m.running = false
+		m.input.SetValue("")
+		m.input.Focus()
+		m.status = helpRefine
+		m.selected = -1
+		m.autoExecute = false
+		m.pendingResumeID = sessionID
+		m.adjustTextareaHeight()
+		return m, nil
 	case msg.String() == "n":
 		m.mode = modeInput
 		m.running = false
@@ -367,21 +469,17 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.lastError = nil
 		m.adjustTextareaHeight()
 		return m, nil
-	case msg.String() == "a":
-		sessionID := m.sessionIDs[m.currentCLI().name]
-		if sessionID == "" {
-			m.status = "no session to refine yet • " + helpViewing
-			return m, nil
-		}
-		m.mode = modeRefine
+	case isNewline(msg):
+		m.mode = modeInput
 		m.running = false
 		m.input.SetValue("")
 		m.input.Focus()
-		m.status = helpRefine
-		m.selected = -1
+		m.status = helpInput
+		m.options = nil
+		m.lastParseError = nil
+		m.rawOutput = ""
 		m.autoExecute = false
-		m.pendingResumeID = sessionID
-		m.adjustTextareaHeight()
+		m.execOutput = ""
 		return m, nil
 	case isCtrlR(msg):
 		value := m.selectedValue()
@@ -426,6 +524,22 @@ func (m model) handleRunningKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+func (m *model) toggleYolo() {
+	m.yolo = !m.yolo
+	state := "off"
+	if m.yolo {
+		state = "on"
+	}
+	switch m.mode {
+	case modeRefine:
+		m.status = fmt.Sprintf("yolo: %s • %s", state, helpRefine)
+	case modeViewing:
+		m.status = fmt.Sprintf("yolo: %s • %s", state, helpViewing)
+	default:
+		m.status = fmt.Sprintf("yolo: %s • %s", state, helpInput)
+	}
+}
+
 func (m *model) adjustTextareaHeight() {
 	content := m.input.Value()
 	visibleLines := strings.Count(content, "\n") + 1
@@ -455,6 +569,25 @@ func (m *model) adjustTextareaHeight() {
 		val := m.input.Value()
 		m.input.SetValue(val)
 	}
+}
+
+func (m model) optionIndexAt(y int) int {
+	row := 1 // header occupies row 0
+	if len(m.promptHistory) > 0 {
+		row += len(m.promptHistory)
+	} else if strings.TrimSpace(m.lastPrompt) != "" {
+		row++
+	}
+
+	if m.lastError != nil || m.lastParseError != nil || len(m.options) == 0 {
+		return -1
+	}
+
+	if y >= row && y < row+len(m.options) {
+		return y - row
+	}
+
+	return -1
 }
 
 func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -489,11 +622,13 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.mode == modeRefine && len(m.promptHistory) > 0 {
+	wasRefine := m.mode == modeRefine
+	if wasRefine && len(m.promptHistory) > 0 {
 		m.promptHistory = append(m.promptHistory, userPrompt)
 	} else {
 		m.promptHistory = []string{userPrompt}
 	}
+
 	m.lastPrompt = userPrompt
 	combinedPrompt := strings.Join(m.promptHistory, "\n")
 	fullPrompt := buildPrompt(combinedPrompt)
@@ -501,7 +636,7 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.mode = modeRunning
 	m.spinnerFrame = 0
 	m.status = ""
-	if m.mode != modeRefine {
+	if !wasRefine {
 		m.options = nil
 	}
 	m.lastParseError = nil
@@ -509,7 +644,7 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 	m.execOutput = ""
 	m.selected = 0
 	sessionID := ""
-	if m.mode == modeRefine {
+	if wasRefine {
 		sessionID = m.pendingResumeID
 	}
 	m.pendingResumeID = ""
@@ -521,11 +656,11 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 		defer cancel()
 		runPrompt := selectedCLI.runPrompt
 		if sessionID != "" && selectedCLI.resumePrompt != nil {
-			runPrompt = func(ctx context.Context, prompt string) ([]byte, error) {
-				return selectedCLI.resumePrompt(ctx, prompt, sessionID)
+			runPrompt = func(ctx context.Context, prompt string, yolo bool) ([]byte, error) {
+				return selectedCLI.resumePrompt(ctx, prompt, sessionID, yolo)
 			}
 		}
-		out, err := runPrompt(ctx, fullPrompt)
+		out, err := runPrompt(ctx, fullPrompt, m.yolo)
 		return responseMsg{
 			output: out,
 			err:    err,
@@ -647,6 +782,31 @@ func (m model) renderOptionsTable() string {
 	return strings.Join(rows, "\n")
 }
 
+func (m model) renderPromptHistory() string {
+	promptStyle := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("12")).
+		Bold(true)
+
+	if len(m.promptHistory) == 0 && strings.TrimSpace(m.lastPrompt) == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	if len(m.promptHistory) > 0 {
+		sb.WriteString(promptStyle.Render("❯ " + m.promptHistory[0]))
+		sb.WriteString("\n")
+		for _, p := range m.promptHistory[1:] {
+			sb.WriteString(promptStyle.Render("↳ " + p))
+			sb.WriteString("\n")
+		}
+	} else {
+		sb.WriteString(promptStyle.Render("❯ " + m.lastPrompt))
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
+}
+
 func (m model) renderInputArea() string {
 	inputBoxStyle := lipgloss.NewStyle().
 		Border(lipgloss.RoundedBorder()).
@@ -691,20 +851,14 @@ func (m model) renderInputArea() string {
 	return combined + "\n"
 }
 
-func (m model) View() string {
-	if !m.ready {
-		loadingStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("205")).
-			Bold(true)
-		return loadingStyle.Render("⏳ Loading...")
-	}
+func (m model) buildHeader() (string, headerMeta) {
+	var meta headerMeta
 
-	var b strings.Builder
-
-	// Title with emoji and CLI selector on one line
 	logoStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205"))
 	titleStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
 	separatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+	keyStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("205")).Bold(true)
+	descStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("241"))
 
 	selectedCLIStyle := lipgloss.NewStyle().
 		Background(lipgloss.Color("205")).
@@ -716,37 +870,72 @@ func (m model) View() string {
 		Foreground(lipgloss.Color("240")).
 		Padding(0, 1)
 
-	// Build left side (title and CLI options)
+	toggleStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.Color("205")).
+		Padding(0, 1)
+
+	targetWidth := m.width - 10
+	if targetWidth < 20 {
+		targetWidth = 20
+	}
+
 	var leftSide strings.Builder
-	leftSide.WriteString(logoStyle.Render("✨ "))
-	leftSide.WriteString(titleStyle.Render(titleText))
-	leftSide.WriteString(separatorStyle.Render(" • "))
+	cursor := 0
+
+	logo := logoStyle.Render("✨ ")
+	leftSide.WriteString(logo)
+	cursor += lipgloss.Width(logo)
+
+	title := titleStyle.Render(titleText)
+	leftSide.WriteString(title)
+	cursor += lipgloss.Width(title)
+
+	sep := separatorStyle.Render(" • ")
+	leftSide.WriteString(sep)
+	cursor += lipgloss.Width(sep)
 
 	for i, opt := range m.cliOptions {
 		if i > 0 {
-			leftSide.WriteString(separatorStyle.Render(" | "))
+			p := separatorStyle.Render(" | ")
+			leftSide.WriteString(p)
+			cursor += lipgloss.Width(p)
 		}
+		tab := normalCLIStyle.Render(opt.name)
 		if i == m.cliIndex {
-			leftSide.WriteString(selectedCLIStyle.Render(opt.name))
-		} else {
-			leftSide.WriteString(normalCLIStyle.Render(opt.name))
+			tab = selectedCLIStyle.Render(opt.name)
 		}
+		start := cursor
+		cursor += lipgloss.Width(tab)
+		leftSide.WriteString(tab)
+		meta.cliRegions = append(meta.cliRegions, clickRegion{
+			kind:   "cli",
+			index:  i,
+			startX: start,
+			endX:   cursor,
+			y:      0,
+		})
 	}
 
-	// Build right side (shortcut hint)
-	keyStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("205")).
-		Bold(true)
-	descStyle := lipgloss.NewStyle().
-		Foreground(lipgloss.Color("241"))
+	space := separatorStyle.Render(" ")
+	leftSide.WriteString(space)
+	cursor += lipgloss.Width(space)
 
-	rightSide := keyStyle.Render("ctrl+n/p") + descStyle.Render(": next/prev CLI")
+	ctrlHint := keyStyle.Render("ctrl+n/p")
+	leftSide.WriteString(ctrlHint)
+	cursor += lipgloss.Width(ctrlHint)
 
-	// Calculate spacing to align with prompt box right margin (same as input box)
 	leftWidth := lipgloss.Width(leftSide.String())
+
+	yoloState := "off"
+	if m.yolo {
+		yoloState = "on"
+	}
+
+	toggleText := toggleStyle.Render("yolo: " + yoloState)
+	rightSide := keyStyle.Render("ctrl+y") + descStyle.Render(" ") + toggleText
 	rightWidth := lipgloss.Width(rightSide)
-	// Align with prompt box which has width of m.width - 10
-	targetWidth := m.width - 10
+
 	spacing := ""
 	if targetWidth > leftWidth+rightWidth+2 {
 		spacing = strings.Repeat(" ", targetWidth-leftWidth-rightWidth)
@@ -754,9 +943,36 @@ func (m model) View() string {
 		spacing = "  "
 	}
 
-	b.WriteString(leftSide.String())
-	b.WriteString(spacing)
-	b.WriteString(rightSide)
+	header := leftSide.String() + spacing + rightSide
+
+	meta.yoloRegion = clickRegion{
+		kind:   "yolo",
+		startX: lipgloss.Width(leftSide.String()) + lipgloss.Width(spacing) + lipgloss.Width(keyStyle.Render("ctrl+y")+descStyle.Render(" ")),
+		endX:   lipgloss.Width(header),
+		y:      0,
+	}
+	meta.headerWidth = lipgloss.Width(header)
+
+	return header, meta
+}
+
+func (m model) headerLayout() headerMeta {
+	_, meta := m.buildHeader()
+	return meta
+}
+
+func (m model) View() string {
+	if !m.ready {
+		loadingStyle := lipgloss.NewStyle().
+			Foreground(lipgloss.Color("205")).
+			Bold(true)
+		return loadingStyle.Render("⏳ Loading...")
+	}
+
+	var b strings.Builder
+
+	header, _ := m.buildHeader()
+	b.WriteString(header)
 	b.WriteString("\n")
 
 	if m.running {
@@ -769,22 +985,8 @@ func (m model) View() string {
 			Bold(true)
 		b.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Running %s...", spinner, m.currentCLI().name)))
 		b.WriteString("\n")
-		// Show context while running so users see what is being refined
-		if len(m.promptHistory) > 0 {
-			promptStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("12")).
-				Bold(true)
-			b.WriteString(promptStyle.Render("❯ " + m.promptHistory[0]))
-			b.WriteString("\n")
-			for _, p := range m.promptHistory[1:] {
-				b.WriteString(promptStyle.Render("↳ " + p))
-				b.WriteString("\n")
-			}
-		} else if strings.TrimSpace(m.lastPrompt) != "" {
-			promptStyle := lipgloss.NewStyle().
-				Foreground(lipgloss.Color("12")).
-				Bold(true)
-			b.WriteString(promptStyle.Render("❯ " + m.lastPrompt))
+		if ph := strings.TrimSuffix(m.renderPromptHistory(), "\n"); ph != "" {
+			b.WriteString(ph)
 			b.WriteString("\n")
 		}
 		if len(m.options) > 0 {
@@ -792,19 +994,8 @@ func (m model) View() string {
 			b.WriteString("\n")
 		}
 	} else if m.mode == modeViewing || m.mode == modeRefine {
-		// Condensed results view
-		promptStyle := lipgloss.NewStyle().
-			Foreground(lipgloss.Color("12")).
-			Bold(true)
-		if len(m.promptHistory) > 0 {
-			b.WriteString(promptStyle.Render("❯ " + m.promptHistory[0]))
-			b.WriteString("\n")
-			for _, p := range m.promptHistory[1:] {
-				b.WriteString(promptStyle.Render("↳ " + p))
-				b.WriteString("\n")
-			}
-		} else if strings.TrimSpace(m.lastPrompt) != "" {
-			b.WriteString(promptStyle.Render("❯ " + m.lastPrompt))
+		if ph := strings.TrimSuffix(m.renderPromptHistory(), "\n"); ph != "" {
+			b.WriteString(ph)
 			b.WriteString("\n")
 		}
 
@@ -887,6 +1078,9 @@ func (m model) View() string {
 			b.WriteString(keyStyle.Render("ctrl+r"))
 			b.WriteString(descStyle.Render(": send & run "))
 			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+y"))
+			b.WriteString(descStyle.Render(": toggle yolo "))
+			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("alt+enter"))
 			b.WriteString(descStyle.Render("/"))
 			b.WriteString(keyStyle.Render("ctrl+j"))
@@ -895,15 +1089,6 @@ func (m model) View() string {
 			b.WriteString(keyStyle.Render("esc"))
 			b.WriteString(descStyle.Render(": exit"))
 		} else if m.status == helpViewing {
-			b.WriteString(keyStyle.Render("up"))
-			b.WriteString(descStyle.Render("/"))
-			b.WriteString(keyStyle.Render("down"))
-			b.WriteString(descStyle.Render("/"))
-			b.WriteString(keyStyle.Render("j"))
-			b.WriteString(descStyle.Render("/"))
-			b.WriteString(keyStyle.Render("k"))
-			b.WriteString(descStyle.Render(": select "))
-			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("enter"))
 			b.WriteString(descStyle.Render(": copy & exit "))
 			b.WriteString(sepStyle.Render("• "))
@@ -916,6 +1101,9 @@ func (m model) View() string {
 			b.WriteString(keyStyle.Render("n"))
 			b.WriteString(descStyle.Render(": new prompt "))
 			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+y"))
+			b.WriteString(descStyle.Render(": toggle yolo "))
+			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("esc"))
 			b.WriteString(descStyle.Render("/"))
 			b.WriteString(keyStyle.Render("q"))
@@ -926,6 +1114,9 @@ func (m model) View() string {
 			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("ctrl+r"))
 			b.WriteString(descStyle.Render(": refine & run "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+y"))
+			b.WriteString(descStyle.Render(": toggle yolo "))
 			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("alt+enter"))
 			b.WriteString(descStyle.Render("/"))

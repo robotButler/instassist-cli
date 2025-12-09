@@ -92,6 +92,7 @@ inst -cli claude
 #### Input Mode
 - `Enter` - Send prompt to AI
 - `Ctrl+R` - Send prompt and auto-execute first result
+- `Ctrl+Y` - Toggle YOLO/auto-approve mode
 - `Ctrl+N` / `Ctrl+P` - Switch CLI
 - `Alt+Enter` or `Ctrl+J` - Insert newline
 - `Ctrl+C` or `Esc` - Quit
@@ -102,6 +103,7 @@ inst -cli claude
 - `Ctrl+R` - Execute selected option and exit
 - `a` - Refine/append prompt in the same session
 - `n` - Start a new prompt
+- `Ctrl+Y` - Toggle YOLO/auto-approve mode
 - `Ctrl+N` / `Ctrl+P` - Switch CLI
 - `Ctrl+C`, `Esc`, or `q` - Quit without action
 
@@ -115,6 +117,18 @@ inst -cli claude
   - opencode: `--session <session-id>`
 - Press `n` to start a fresh session at any time.
 
+### YOLO / Auto-Approve
+
+- Toggle via `Ctrl+Y` or click the `yolo: on/off` pill in the header.
+- Flags applied when enabled:
+  - codex: `--yolo`
+  - claude: `--dangerously-skip-permissions`
+  - gemini: `--yolo`
+  - opencode: (no YOLO flag available)
+
+### Mouse/Clicks
+
+- CLI tabs, the YOLO toggle, and result options are clickable in the TUI.
 ### CLI Mode (Non-Interactive)
 
 Perfect for scripting and automation:

@@ -53,7 +53,7 @@ func Main() {
 
 	// Interactive TUI mode
 	m := newModel(*cliFlag, *stayOpenExecFlag)
-	if _, err := tea.NewProgram(m, tea.WithAltScreen()).Run(); err != nil {
+	if _, err := tea.NewProgram(m, tea.WithAltScreen(), tea.WithMouseCellMotion()).Run(); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
