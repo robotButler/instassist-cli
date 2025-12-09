@@ -52,3 +52,48 @@ func TestCleanTextCollapsesWhitespace(t *testing.T) {
 		t.Fatalf("expected %q, got %q", want, got)
 	}
 }
+
+func TestExtractOptionsFromJSONLines(t *testing.T) {
+	raw := `{"type":"thread.started","thread_id":"019aff05-63c1-76a3-a458-50c0bc1582d2"}
+{"type":"item.completed","item":{"type":"agent_message","text":"{\"options\":[{\"value\":\"one\",\"description\":\"first\",\"recommendation_order\":1}]}"}}`
+	opts, err := extractOptions(raw)
+	if err != nil {
+		t.Fatalf("extractOptions returned error: %v", err)
+	}
+	if len(opts) != 1 || opts[0].Value != "one" {
+		t.Fatalf("unexpected options parsed: %+v", opts)
+	}
+}
+
+func TestExtractSessionID(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "codex thread id",
+			raw:  `{"type":"thread.started","thread_id":"019aff05-63c1-76a3-a458-50c0bc1582d2"}`,
+			want: "019aff05-63c1-76a3-a458-50c0bc1582d2",
+		},
+		{
+			name: "claude session id",
+			raw:  `{"type":"result","session_id":"0f9d4ff1-1602-43b9-8071-2bef8f0353bd"}`,
+			want: "0f9d4ff1-1602-43b9-8071-2bef8f0353bd",
+		},
+		{
+			name: "opencode session id",
+			raw:  `{"type":"step_start","sessionID":"ses_123abcXYZ"}`,
+			want: "ses_123abcXYZ",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := extractSessionID(tt.raw)
+			if got != tt.want {
+				t.Fatalf("expected %q, got %q", tt.want, got)
+			}
+		})
+	}
+}

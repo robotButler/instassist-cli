@@ -38,7 +38,7 @@
 
 ## Interaction Model & Shortcuts
 - Input submission: `Enter` sends; `Ctrl+R` sends and auto-executes first result. Newline insertion: `Alt+Enter` or `Ctrl+J`. CLI switching: `Ctrl+N` / `Ctrl+P`. Exit: `Ctrl+C`/`Esc`.
-- Viewing mode: navigation with arrows or `j/k`; `Enter` copies and exits; `Ctrl+R` executes selection; `Alt+Enter` resets to input; `Ctrl+N`/`Ctrl+P` switch CLIs.
+- Viewing mode: navigation with arrows or `j/k`; `Enter` copies and exits; `Ctrl+R` executes selection; `a` starts a refine/append prompt on the same session; `n` starts a new prompt; `Ctrl+N`/`Ctrl+P` switch CLIs.
 - Exec failures surface in the status bar; auto-exec resets after firing to prevent repeated runs.
 
 ## Compatibility Notes
