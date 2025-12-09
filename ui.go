@@ -592,9 +592,10 @@ type optionRenderLines struct {
 }
 
 type optionRenderLine struct {
-	prefix  string
-	value   string
-	comment string
+	prefix    string
+	value     string
+	comment   string
+	highlight bool
 }
 
 func wrapTextLines(text string, width int) []string {
@@ -718,9 +719,10 @@ func (m model) optionLines(opt optionEntry, selected bool) optionRenderLines {
 		}
 
 		lines = append(lines, optionRenderLine{
-			prefix:  prefix,
-			value:   valueText,
-			comment: commentText,
+			prefix:    prefix,
+			value:     valueText,
+			comment:   commentText,
+			highlight: selected && strings.TrimSpace(valueText) != "",
 		})
 	}
 
@@ -903,7 +905,7 @@ func (m model) renderOptionsTable() string {
 		lines := m.optionLines(opt, i == m.selected)
 		for _, ln := range lines.lines {
 			base := ln.prefix + ln.value
-			if i == m.selected {
+			if ln.highlight {
 				base = selectedStyle.Render(base)
 			} else {
 				base = normalStyle.Render(base)
