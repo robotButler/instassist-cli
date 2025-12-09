@@ -133,7 +133,7 @@ func newModel(defaultCLI string, stayOpenExec bool, yoloDefault bool) model {
 				if yolo {
 					args = append(args, "--yolo")
 				}
-				args = append(args, "resume", "--output-schema", schemaPath, "--skip-git-repo-check", "--json", sessionID, "-")
+				args = append(args, "--output-schema", schemaPath, "--skip-git-repo-check", "--json", "resume", sessionID, "-")
 				cmd := exec.CommandContext(ctx, "codex", args...)
 				cmd.Stdin = strings.NewReader(prompt)
 				return cmd.CombinedOutput()
