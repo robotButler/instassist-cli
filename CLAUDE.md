@@ -45,17 +45,20 @@ The application has two distinct execution paths determined in `main()`:
 
 ### State Machine (TUI Mode)
 
-The TUI operates as a state machine with three modes (`viewMode` enum):
+The TUI operates as a state machine with four modes (`viewMode` enum):
 
 - `modeInput`: User enters prompt (textarea component active)
 - `modeRunning`: Request sent to AI CLI, waiting for response
 - `modeViewing`: Displaying results and navigating options
+- `modeRefine`: Append/refine prompt while keeping the current results visible (resume session)
 
 State transitions:
 - Input → Running: User presses Enter or Ctrl+R with non-empty prompt
 - Running → Viewing: AI response received (success or error)
-- Viewing → Input: User presses Alt+Enter/Ctrl+J for new prompt
+- Viewing → Refine: User presses `a` to append a prompt in the same session (focus shifts to refine box)
+- Viewing → Input: User presses `n` for a fresh prompt/session
 - Viewing → Exit: User presses Enter (copy) or Ctrl+R (execute)
+- Refine → Running: User submits with Enter/Ctrl+Enter/Ctrl+R
 
 ### AI CLI Integration
 
@@ -63,23 +66,27 @@ The app supports four AI CLIs with different invocation patterns:
 
 **codex**: Uses stdin for prompt input
 ```go
-cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath)
+cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json")
 cmd.Stdin = strings.NewReader(fullPrompt)
+// resume: codex exec resume --output-schema <schema> --skip-git-repo-check --json <sessionID> -
 ```
 
 **claude**: Uses command-line flag for prompt
 ```go
-cmd := exec.CommandContext(ctx, "claude", "-p", fullPrompt, "--json-schema", schemaPath)
+cmd := exec.CommandContext(ctx, "claude", "-p", fullPrompt, "--print", "--output-format", "json", "--json-schema", schemaJSON)
+// resume: add --resume <sessionID>
 ```
 
 **gemini**: Positional prompt with JSON output
 ```go
 cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", fullPrompt)
+// resume: add --resume <sessionID>
 ```
 
 **opencode**: Uses `run` with JSON format
 ```go
 cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", fullPrompt)
+// resume: add --session <sessionID>
 ```
 
 Both receive the same structured prompt (via `buildPrompt()`) that includes:
@@ -88,11 +95,11 @@ Both receive the same structured prompt (via `buildPrompt()`) that includes:
 
 ### JSON Response Parsing
 
-The `parseOptions()` function is resilient to AI output that may include extra text:
-- Searches for all occurrences of `{"options"` in the response
-- Tries to decode each as JSON
-- Returns the **last valid** JSON object found (handles cases where AI includes multiple attempts)
+The `extractOptions()` helper is resilient to AI output that may include extra text or JSONL event envelopes:
+- Uses `parseOptions()` first for plain JSON responses
+- Falls back to scanning JSON lines and string fields for the last valid `options` block
 - Sorts options by `recommendation_order` field (lower = higher priority)
+- `extractSessionID()` scans the same output for session/thread IDs (UUIDs or `ses_*` tokens) so refine flows can resume
 
 ### Schema File Resolution
 
@@ -120,9 +127,9 @@ Special key combinations are handled with helper functions:
 - `isCtrlR()`: Ctrl+R (submit + auto-execute)
 
 The `handleKeyMsg()` dispatcher routes to mode-specific handlers:
-- `handleInputKeys()`: Text entry, submission (Enter/Ctrl+Enter), CLI switching (`ctrl+n` / `ctrl+p`)
+- `handleInputKeys()`: Text entry, submission (Enter/Ctrl+Enter), CLI switching (`ctrl+n` / `ctrl+p`) for both initial input and refine mode
 - `handleRunningKeys()`: Minimal (only CLI switching)
-- `handleViewingKeys()`: Navigation, copy/execute, CLI switching, and reset to input
+- `handleViewingKeys()`: Navigation, copy/execute, CLI switching, start refine (`a`), or start a fresh prompt (`n`)
 
 ### Version Embedding
 

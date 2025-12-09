@@ -100,9 +100,20 @@ inst -cli claude
 - `Up/Down` or `j/k` - Navigate options
 - `Enter` - Copy selected option to clipboard and exit
 - `Ctrl+R` - Execute selected option and exit
-- `Alt+Enter` - Start new prompt
+- `a` - Refine/append prompt in the same session
+- `n` - Start a new prompt
 - `Ctrl+N` / `Ctrl+P` - Switch CLI
 - `Ctrl+C`, `Esc`, or `q` - Quit without action
+
+### Refining Results (Session Resume)
+
+- Press `a` in results to append a follow-up prompt; the existing options and prompt history stay visible.
+- The app resumes the underlying session for each CLI:
+  - codex: `codex exec resume <session-id> -`
+  - claude: `--resume <session-id>`
+  - gemini: `--resume <session-id>`
+  - opencode: `--session <session-id>`
+- Press `n` to start a fresh session at any time.
 
 ### CLI Mode (Non-Interactive)
 

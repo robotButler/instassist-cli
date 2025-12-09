@@ -45,7 +45,7 @@ func runNonInteractive(cliName, userPrompt string, selectIndex int, outputMode s
 		log.Fatalf("CLI error: %v\nOutput: %s", err, string(output))
 	}
 
-	opts, parseErr := parseOptions(string(output))
+	opts, parseErr := extractOptions(string(output))
 	if parseErr != nil {
 		log.Fatalf("parse error: %v\nRaw output: %s", parseErr, string(output))
 	}

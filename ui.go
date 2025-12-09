@@ -20,7 +20,8 @@ const (
 	titleText = "insta-assist"
 
 	helpInput   = "enter: send • ctrl+r: send & run • alt+enter/ctrl+j: newline • esc: exit"
-	helpViewing = "up/down/j/k: select • enter: copy & exit • ctrl+r: run & exit • alt+enter: new prompt • esc/q: quit"
+	helpRefine  = "enter: refine • ctrl+r: refine & run • alt+enter/ctrl+j: newline • esc: exit"
+	helpViewing = "up/down/j/k: select • enter: copy & exit • ctrl+r: run & exit • a: refine • n: new prompt • esc/q: quit"
 )
 
 type viewMode int
@@ -29,6 +30,7 @@ const (
 	modeInput viewMode = iota
 	modeRunning
 	modeViewing
+	modeRefine
 )
 
 type responseMsg struct {
@@ -51,8 +53,9 @@ func tickCmd() tea.Msg {
 }
 
 type cliOption struct {
-	name      string
-	runPrompt func(ctx context.Context, prompt string) ([]byte, error)
+	name         string
+	runPrompt    func(ctx context.Context, prompt string) ([]byte, error)
+	resumePrompt func(ctx context.Context, prompt string, sessionID string) ([]byte, error)
 }
 
 type model struct {
@@ -83,6 +86,10 @@ type model struct {
 	autoExecute bool // if true, execute first result and exit
 
 	spinnerFrame int // for animation while waiting
+
+	sessionIDs      map[string]string
+	pendingResumeID string
+	promptHistory   []string
 }
 
 func newModel(defaultCLI string, stayOpenExec bool) model {
@@ -95,7 +102,12 @@ func newModel(defaultCLI string, stayOpenExec bool) model {
 		{
 			name: "codex",
 			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
-				cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check")
+				cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json")
+				cmd.Stdin = strings.NewReader(prompt)
+				return cmd.CombinedOutput()
+			},
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
+				cmd := exec.CommandContext(ctx, "codex", "exec", "resume", "--output-schema", schemaPath, "--skip-git-repo-check", "--json", sessionID, "-")
 				cmd.Stdin = strings.NewReader(prompt)
 				return cmd.CombinedOutput()
 			},
@@ -106,6 +118,10 @@ func newModel(defaultCLI string, stayOpenExec bool) model {
 				cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON)
 				return cmd.CombinedOutput()
 			},
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
+				cmd := exec.CommandContext(ctx, "claude", "-p", prompt, "--print", "--output-format", "json", "--json-schema", schemaJSON, "--resume", sessionID)
+				return cmd.CombinedOutput()
+			},
 		},
 		{
 			name: "gemini",
@@ -113,11 +129,19 @@ func newModel(defaultCLI string, stayOpenExec bool) model {
 				cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", prompt)
 				return cmd.CombinedOutput()
 			},
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
+				cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", "--resume", sessionID, prompt)
+				return cmd.CombinedOutput()
+			},
 		},
 		{
 			name: "opencode",
 			runPrompt: func(ctx context.Context, prompt string) ([]byte, error) {
 				cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", prompt)
+				return cmd.CombinedOutput()
+			},
+			resumePrompt: func(ctx context.Context, prompt string, sessionID string) ([]byte, error) {
+				cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", "--session", sessionID, prompt)
 				return cmd.CombinedOutput()
 			},
 		},
@@ -157,6 +181,7 @@ func newModel(defaultCLI string, stayOpenExec bool) model {
 		mode:         modeInput,
 		status:       helpInput,
 		stayOpenExec: stayOpenExec,
+		sessionIDs:   map[string]string{},
 	}
 }
 
@@ -202,7 +227,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.handleKeyMsg(msg)
 	}
 
-	if m.mode == modeInput {
+	if m.mode == modeInput || m.mode == modeRefine {
 		var cmd tea.Cmd
 		m.input, cmd = m.input.Update(msg)
 		m.adjustTextareaHeight()
@@ -215,6 +240,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.running = false
 	m.mode = modeViewing
+	m.pendingResumeID = ""
 
 	respText := strings.TrimSpace(string(msg.output))
 	if msg.err != nil && respText == "" {
@@ -225,6 +251,13 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 	m.lastError = nil
 	m.execOutput = ""
 
+	if sessionID := extractSessionID(respText); sessionID != "" {
+		if m.sessionIDs == nil {
+			m.sessionIDs = map[string]string{}
+		}
+		m.sessionIDs[msg.cli] = sessionID
+	}
+
 	if msg.err != nil {
 		m.lastError = msg.err
 		m.status = fmt.Sprintf("error from %s: %v • %s", msg.cli, msg.err, helpViewing)
@@ -233,7 +266,7 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	opts, parseErr := parseOptions(respText)
+	opts, parseErr := extractOptions(respText)
 	if parseErr != nil {
 		m.lastParseError = parseErr
 		m.status = fmt.Sprintf("parse error: %v • %s", parseErr, helpViewing)
@@ -259,6 +292,8 @@ func (m model) handleResponse(msg responseMsg) (tea.Model, tea.Cmd) {
 func (m model) handleKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch m.mode {
 	case modeInput:
+		return m.handleInputKeys(msg)
+	case modeRefine:
 		return m.handleInputKeys(msg)
 	case modeRunning:
 		return m.handleRunningKeys(msg)
@@ -314,7 +349,7 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Type == tea.KeyCtrlC || msg.String() == "esc" || msg.String() == "q":
 		return m, tea.Quit
-	case isNewline(msg):
+	case msg.String() == "n":
 		m.mode = modeInput
 		m.running = false
 		m.input.SetValue("")
@@ -323,8 +358,30 @@ func (m model) handleViewingKeys(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.options = nil
 		m.lastParseError = nil
 		m.rawOutput = ""
+		m.lastPrompt = ""
 		m.autoExecute = false
 		m.execOutput = ""
+		m.selected = 0
+		m.pendingResumeID = ""
+		m.promptHistory = nil
+		m.lastError = nil
+		m.adjustTextareaHeight()
+		return m, nil
+	case msg.String() == "a":
+		sessionID := m.sessionIDs[m.currentCLI().name]
+		if sessionID == "" {
+			m.status = "no session to refine yet • " + helpViewing
+			return m, nil
+		}
+		m.mode = modeRefine
+		m.running = false
+		m.input.SetValue("")
+		m.input.Focus()
+		m.status = helpRefine
+		m.selected = -1
+		m.autoExecute = false
+		m.pendingResumeID = sessionID
+		m.adjustTextareaHeight()
 		return m, nil
 	case isCtrlR(msg):
 		value := m.selectedValue()
@@ -424,28 +481,51 @@ func (m model) updateInput(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 	userPrompt := strings.TrimRight(m.input.Value(), "\n")
 	if strings.TrimSpace(userPrompt) == "" {
-		m.status = "prompt is empty • " + helpInput
+		if m.mode == modeRefine {
+			m.status = "prompt is empty • " + helpRefine
+		} else {
+			m.status = "prompt is empty • " + helpInput
+		}
 		return m, nil
 	}
 
+	if m.mode == modeRefine && len(m.promptHistory) > 0 {
+		m.promptHistory = append(m.promptHistory, userPrompt)
+	} else {
+		m.promptHistory = []string{userPrompt}
+	}
 	m.lastPrompt = userPrompt
-	fullPrompt := buildPrompt(userPrompt)
+	combinedPrompt := strings.Join(m.promptHistory, "\n")
+	fullPrompt := buildPrompt(combinedPrompt)
 	m.running = true
 	m.mode = modeRunning
 	m.spinnerFrame = 0
 	m.status = ""
-	m.options = nil
+	if m.mode != modeRefine {
+		m.options = nil
+	}
 	m.lastParseError = nil
 	m.rawOutput = ""
 	m.execOutput = ""
 	m.selected = 0
+	sessionID := ""
+	if m.mode == modeRefine {
+		sessionID = m.pendingResumeID
+	}
+	m.pendingResumeID = ""
 
 	selectedCLI := m.currentCLI()
 	cliName := selectedCLI.name
 	cmd := func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
-		out, err := selectedCLI.runPrompt(ctx, fullPrompt)
+		runPrompt := selectedCLI.runPrompt
+		if sessionID != "" && selectedCLI.resumePrompt != nil {
+			runPrompt = func(ctx context.Context, prompt string) ([]byte, error) {
+				return selectedCLI.resumePrompt(ctx, prompt, sessionID)
+			}
+		}
+		out, err := runPrompt(ctx, fullPrompt)
 		return responseMsg{
 			output: out,
 			err:    err,
@@ -567,6 +647,50 @@ func (m model) renderOptionsTable() string {
 	return strings.Join(rows, "\n")
 }
 
+func (m model) renderInputArea() string {
+	inputBoxStyle := lipgloss.NewStyle().
+		Border(lipgloss.RoundedBorder()).
+		BorderForeground(lipgloss.AdaptiveColor{
+			Light: "201",
+			Dark:  "51",
+		}).
+		Padding(0, 1)
+
+	totalLines := strings.Count(m.input.Value(), "\n") + 1
+	visibleHeight := m.input.Height()
+	hasScroll := totalLines > visibleHeight
+
+	var scrollIndicator string
+	if hasScroll {
+		indicatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
+		scrollLines := make([]string, visibleHeight+2)
+		scrollLines[0] = "▲"
+		scrollLines[len(scrollLines)-1] = "▼"
+		for i := 1; i < len(scrollLines)-1; i++ {
+			scrollLines[i] = "│"
+		}
+		scrollIndicator = indicatorStyle.Render(strings.Join(scrollLines, "\n"))
+	}
+
+	inputBox := inputBoxStyle.Render(m.input.View())
+
+	inputLines := strings.Split(inputBox, "\n")
+	emojiColumn := make([]string, len(inputLines))
+	emojiColumn[0] = "  "
+	for i := 1; i < len(emojiColumn); i++ {
+		emojiColumn[i] = "  "
+	}
+	emoji := strings.Join(emojiColumn, "\n")
+
+	if hasScroll {
+		combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox, " ", scrollIndicator)
+		return combined + "\n"
+	}
+
+	combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox)
+	return combined + "\n"
+}
+
 func (m model) View() string {
 	if !m.ready {
 		loadingStyle := lipgloss.NewStyle().
@@ -645,12 +769,41 @@ func (m model) View() string {
 			Bold(true)
 		b.WriteString(spinnerStyle.Render(fmt.Sprintf("%s Running %s...", spinner, m.currentCLI().name)))
 		b.WriteString("\n")
-	} else if m.mode == modeViewing {
+		// Show context while running so users see what is being refined
+		if len(m.promptHistory) > 0 {
+			promptStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("12")).
+				Bold(true)
+			b.WriteString(promptStyle.Render("❯ " + m.promptHistory[0]))
+			b.WriteString("\n")
+			for _, p := range m.promptHistory[1:] {
+				b.WriteString(promptStyle.Render("↳ " + p))
+				b.WriteString("\n")
+			}
+		} else if strings.TrimSpace(m.lastPrompt) != "" {
+			promptStyle := lipgloss.NewStyle().
+				Foreground(lipgloss.Color("12")).
+				Bold(true)
+			b.WriteString(promptStyle.Render("❯ " + m.lastPrompt))
+			b.WriteString("\n")
+		}
+		if len(m.options) > 0 {
+			b.WriteString(m.renderOptionsTable())
+			b.WriteString("\n")
+		}
+	} else if m.mode == modeViewing || m.mode == modeRefine {
 		// Condensed results view
 		promptStyle := lipgloss.NewStyle().
 			Foreground(lipgloss.Color("12")).
 			Bold(true)
-		if strings.TrimSpace(m.lastPrompt) != "" {
+		if len(m.promptHistory) > 0 {
+			b.WriteString(promptStyle.Render("❯ " + m.promptHistory[0]))
+			b.WriteString("\n")
+			for _, p := range m.promptHistory[1:] {
+				b.WriteString(promptStyle.Render("↳ " + p))
+				b.WriteString("\n")
+			}
+		} else if strings.TrimSpace(m.lastPrompt) != "" {
 			b.WriteString(promptStyle.Render("❯ " + m.lastPrompt))
 			b.WriteString("\n")
 		}
@@ -706,49 +859,12 @@ func (m model) View() string {
 			b.WriteString(outputText.Render(m.execOutput))
 			b.WriteString("\n")
 		}
+
+		if m.mode == modeRefine {
+			b.WriteString(m.renderInputArea())
+		}
 	} else {
-		inputBoxStyle := lipgloss.NewStyle().
-			Border(lipgloss.RoundedBorder()).
-			BorderForeground(lipgloss.AdaptiveColor{
-				Light: "201",
-				Dark:  "51",
-			}).
-			Padding(0, 1)
-
-		totalLines := strings.Count(m.input.Value(), "\n") + 1
-		visibleHeight := m.input.Height()
-		hasScroll := totalLines > visibleHeight
-
-		var scrollIndicator string
-		if hasScroll {
-			indicatorStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("201"))
-			scrollLines := make([]string, visibleHeight+2)
-			scrollLines[0] = "▲"
-			scrollLines[len(scrollLines)-1] = "▼"
-			for i := 1; i < len(scrollLines)-1; i++ {
-				scrollLines[i] = "│"
-			}
-			scrollIndicator = indicatorStyle.Render(strings.Join(scrollLines, "\n"))
-		}
-
-		inputBox := inputBoxStyle.Render(m.input.View())
-
-		inputLines := strings.Split(inputBox, "\n")
-		emojiColumn := make([]string, len(inputLines))
-		emojiColumn[0] = "  "
-		for i := 1; i < len(emojiColumn); i++ {
-			emojiColumn[i] = "  "
-		}
-		emoji := strings.Join(emojiColumn, "\n")
-
-		if hasScroll {
-			combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox, " ", scrollIndicator)
-			b.WriteString(combined)
-		} else {
-			combined := lipgloss.JoinHorizontal(lipgloss.Top, emoji, " ", inputBox)
-			b.WriteString(combined)
-		}
-		b.WriteString("\n")
+		b.WriteString(m.renderInputArea())
 	}
 
 	if m.status != "" {
@@ -794,13 +910,30 @@ func (m model) View() string {
 			b.WriteString(keyStyle.Render("ctrl+r"))
 			b.WriteString(descStyle.Render(": run & exit "))
 			b.WriteString(sepStyle.Render("• "))
-			b.WriteString(keyStyle.Render("alt+enter"))
+			b.WriteString(keyStyle.Render("a"))
+			b.WriteString(descStyle.Render(": refine "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("n"))
 			b.WriteString(descStyle.Render(": new prompt "))
 			b.WriteString(sepStyle.Render("• "))
 			b.WriteString(keyStyle.Render("esc"))
 			b.WriteString(descStyle.Render("/"))
 			b.WriteString(keyStyle.Render("q"))
 			b.WriteString(descStyle.Render(": quit"))
+		} else if m.status == helpRefine {
+			b.WriteString(keyStyle.Render("enter"))
+			b.WriteString(descStyle.Render(": refine "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("ctrl+r"))
+			b.WriteString(descStyle.Render(": refine & run "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("alt+enter"))
+			b.WriteString(descStyle.Render("/"))
+			b.WriteString(keyStyle.Render("ctrl+j"))
+			b.WriteString(descStyle.Render(": newline "))
+			b.WriteString(sepStyle.Render("• "))
+			b.WriteString(keyStyle.Render("esc"))
+			b.WriteString(descStyle.Render(": exit"))
 		} else {
 			// For other status messages, just render as-is
 			b.WriteString(descStyle.Render(m.status))
