@@ -40,7 +40,6 @@ make help
 The application has two distinct execution paths determined in `main()`:
 
 1. **Non-interactive CLI mode** (`runNonInteractive`): Activated when `-prompt` flag is provided or stdin is piped. Runs a single request, outputs result (clipboard/stdout/exec), and exits.
-
 2. **Interactive TUI mode** (`newModel` + Bubble Tea): Full-screen terminal UI with state management through the Bubble Tea framework.
 
 ### State Machine (TUI Mode)
@@ -48,7 +47,7 @@ The application has two distinct execution paths determined in `main()`:
 The TUI operates as a state machine with four modes (`viewMode` enum):
 
 - `modeInput`: User enters prompt (textarea component active)
-- `modeRunning`: Request sent to AI CLI, waiting for response
+- `modeRunning`: Request sent to AI CLI, waiting for response (prompt history stays visible)
 - `modeViewing`: Displaying results and navigating options
 - `modeRefine`: Append/refine prompt while keeping the current results visible (resume session)
 
@@ -66,27 +65,27 @@ The app supports four AI CLIs with different invocation patterns:
 
 **codex**: Uses stdin for prompt input
 ```go
-cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json")
+cmd := exec.CommandContext(ctx, "codex", "exec", "--output-schema", schemaPath, "--skip-git-repo-check", "--json", "--yolo")
 cmd.Stdin = strings.NewReader(fullPrompt)
-// resume: codex exec resume --output-schema <schema> --skip-git-repo-check --json <sessionID> -
+// resume: codex exec resume --output-schema <schema> --skip-git-repo-check --json [--yolo] <sessionID> -
 ```
 
 **claude**: Uses command-line flag for prompt
 ```go
-cmd := exec.CommandContext(ctx, "claude", "-p", fullPrompt, "--print", "--output-format", "json", "--json-schema", schemaJSON)
+cmd := exec.CommandContext(ctx, "claude", "-p", fullPrompt, "--print", "--output-format", "json", "--json-schema", schemaJSON, "--dangerously-skip-permissions")
 // resume: add --resume <sessionID>
 ```
 
 **gemini**: Positional prompt with JSON output
 ```go
-cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", fullPrompt)
+cmd := exec.CommandContext(ctx, "gemini", "--output-format", "json", "--yolo", fullPrompt)
 // resume: add --resume <sessionID>
 ```
 
 **opencode**: Uses `run` with JSON format
 ```go
 cmd := exec.CommandContext(ctx, "opencode", "run", "--format", "json", fullPrompt)
-// resume: add --session <sessionID>
+// resume: add --session <sessionID> (no YOLO flag)
 ```
 
 Both receive the same structured prompt (via `buildPrompt()`) that includes:
@@ -101,35 +100,18 @@ The `extractOptions()` helper is resilient to AI output that may include extra t
 - Sorts options by `recommendation_order` field (lower = higher priority)
 - `extractSessionID()` scans the same output for session/thread IDs (UUIDs or `ses_*` tokens) so refine flows can resume
 
-### Schema File Resolution
+### Key Design Patterns
 
-`optionsSchemaPath()` searches in order:
-1. Same directory as the executable binary
-2. Current working directory
-3. `/usr/local/share/insta-assist/options.schema.json` (system install location)
-
-This allows both development (run from source) and production (installed) use cases.
-
-## Key Design Patterns
-
-### Lipgloss Styling
-
-The UI heavily uses `lipgloss.NewStyle()` for consistent visual theming:
-- Styles are created inline in the `View()` and `renderOptionsTable()` functions
-- Colors use numbered palette (e.g., "205" for purple, "62" for highlights)
-- Selected options use background color + foreground color + arrow prefix
-
-### Keyboard Input Handling
-
-Special key combinations are handled with helper functions:
-- `isNewline()`: Alt+Enter or Ctrl+J (for adding newlines)
-- `isCtrlEnter()`: Ctrl+Enter (also submits prompt)
-- `isCtrlR()`: Ctrl+R (submit + auto-execute)
-
-The `handleKeyMsg()` dispatcher routes to mode-specific handlers:
-- `handleInputKeys()`: Text entry, submission (Enter/Ctrl+Enter), CLI switching (`ctrl+n` / `ctrl+p`) for both initial input and refine mode
-- `handleRunningKeys()`: Minimal (only CLI switching)
-- `handleViewingKeys()`: Navigation, copy/execute, CLI switching, start refine (`a`), or start a fresh prompt (`n`)
+- Lipgloss styling for consistent theming.
+- Mouse and keyboard input handling:
+  - `isNewline()`: Alt+Enter or Ctrl+J (for adding newlines)
+  - `isCtrlEnter()`: Ctrl+Enter (also submits prompt)
+  - `isCtrlR()`: Ctrl+R (submit + auto-execute)
+  - Mouse clicks: CLI tabs, YOLO toggle, and options are clickable
+- The `handleKeyMsg()` dispatcher routes to mode-specific handlers:
+  - `handleInputKeys()`: Text entry, submission (Enter/Ctrl+Enter), CLI switching (`ctrl+n` / `ctrl+p`), YOLO toggle (`ctrl+y`) for both initial input and refine mode
+  - `handleRunningKeys()`: Minimal (only quitting while running)
+  - `handleViewingKeys()`: Navigation, copy/execute, CLI switching, YOLO toggle (`ctrl+y`), start refine (`a`), or start a fresh prompt (`n`)
 
 ### Version Embedding
 
@@ -152,21 +134,3 @@ make build
 ./insta -prompt "list files" -output stdout
 echo "git commands" | ./insta -output stdout
 ```
-
-## Adding New AI CLI Support
-
-To add support for a new AI CLI:
-
-1. Add entry to `cliOptions` slice in `newModel()` with appropriate `runPrompt` function
-2. Add corresponding case in `runNonInteractive()` for CLI mode support
-3. Ensure the CLI accepts the schema file path and returns JSON matching the schema
-
-## Important File Relationships
-
-- `main.go`: Flag parsing and entrypoint routing (non-interactive vs TUI)
-- `ui.go`: Bubble Tea model, view, and key handling
-- `noninteractive.go`: CLI-only execution flow
-- `prompt.go`: Prompt construction, schema resolution, and JSON parsing
-- `options.schema.json`: JSON schema sent to AI CLIs, defines response structure
-- `Makefile`: Build automation with version embedding
-- Schema file must be accessible at runtime (see Schema File Resolution above)
