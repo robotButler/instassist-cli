@@ -623,15 +623,19 @@ func (m model) submitPrompt() (tea.Model, tea.Cmd) {
 
 	m.lastPrompt = userPrompt
 	combinedPrompt := strings.Join(m.promptHistory, "\n")
-	fullPrompt := buildPrompt(combinedPrompt)
+	promptContent := combinedPrompt
+	if wasRefine {
+		// For resume flows, only send the new prompt; the session carries prior context.
+		promptContent = userPrompt
+	}
+	fullPrompt := buildPrompt(promptContent)
 	m.running = true
 	m.mode = modeRunning
 	m.spinnerFrame = 0
 	m.status = ""
-	if !wasRefine {
-		m.options = nil
-	}
+	m.options = nil
 	m.lastParseError = nil
+	m.lastError = nil
 	m.rawOutput = ""
 	m.execOutput = ""
 	m.selected = 0
